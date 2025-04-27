@@ -106,7 +106,7 @@ league_mapping = {
 def style_dataframe(df, output_rows):
     def highlight_rows(row):
         if row["Benzerlik (%)"] == "":
-            return ['background-color: #FFFF00'] * len(row)
+            return ['background-color: #bf040d'] * len(row)
         return [''] * len(row)
     
     def highlight_scores(df, output_rows):
@@ -152,7 +152,7 @@ def fetch_api_data():
         "Connection": "keep-alive",
         "X-Requested-With": "XMLHttpRequest",
     }
-    url = "https://bulten.nesine.com/api/bulten/getprebultendelta"  # marketVersion kaldırıldı
+    url = "https://bulten.nesine.com/api/bulten/getprebultendelta?eventVersion=462376563&marketVersion=462376563&oddVersion=1712799325&_=1743545516827"  # marketVersion kaldırıldı
     try:
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
@@ -168,7 +168,7 @@ def fetch_api_data():
 # Function to process API data into DataFrame
 def process_api_data(match_list, raw_data):
     with status_placeholder.container():
-        status_placeholder.write("API maçları işleniyor...")
+        status_placeholder.write("Bülten maçları işleniyor...")
         time.sleep(0.1)
     
     START_DATETIME = datetime.now(timezone.utc) + timedelta(hours=3)  # TR saati
@@ -395,12 +395,12 @@ def find_similar_matches(api_df, data):
 if st.button("Analize Başla", disabled=st.session_state.analysis_done):
     try:
         with st.spinner("Analiz başlatılıyor..."):
-            status_placeholder.write("Excel dosyası indiriliyor...")
+            status_placeholder.write("Geçmiş maç verileri indiriliyor...")
             time.sleep(0.1)
             file_id = "11m7tX2xCavCM_cij69UaSVijFuFQbveM"
             download(f"https://drive.google.com/uc?id={file_id}", "matches.xlsx", quiet=False)
             
-            status_placeholder.write("Excel sütunları kontrol ediliyor...")
+            status_placeholder.write("Geçmiş maç verilerin bahisleri kontrol ediliyor...")
             time.sleep(0.1)
             excel_columns_basic = ["Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"] + excel_columns
             data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", dtype=str)  # Tüm sütunlar string
@@ -411,11 +411,11 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             available_columns = [data.columns[i] for i, col in enumerate(data_columns_lower) if col in excel_columns_lower]
             missing_columns = [col for col in excel_columns_basic if col.lower().strip() not in data_columns_lower]
             
-            status_placeholder.write(f"Excel sütunları: {', '.join(data.columns)}")
+            status_placeholder.write(f"Bahis Seçenekleri: {', '.join(data.columns)}")
             if missing_columns:
                 st.warning(f"Eksik sütunlar: {', '.join(missing_columns)}. Mevcut sütunlarla devam ediliyor.")
             
-            status_placeholder.write("Excel verisi yükleniyor...")
+            status_placeholder.write("Geçmiş Maç verileri yükleniyor...")
             time.sleep(0.1)
             data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", usecols=available_columns, dtype=str)
             
