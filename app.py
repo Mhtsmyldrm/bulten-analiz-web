@@ -30,7 +30,7 @@ if "analysis_done" not in st.session_state:
 # Placeholder for status messages
 status_placeholder = st.empty()
 
-# Oran sütunları (Excel'e göre)
+# Oran sütunları
 excel_columns = [
     "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
     "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
@@ -53,7 +53,7 @@ excel_columns = [
     "Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst",
     "Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst",
     "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
-    "Handikaplı Maç Sonucu (0,1) 1", "Handikaplı Maç Sonucu (0,1) X", "Handikaplı Maç Sonucu (0,1) 2",
+    "Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2",
     "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
     "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst",
     "Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
@@ -84,7 +84,7 @@ mtid_mapping = {
     (212, None): ["Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst"],
     (256, None): ["Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst"],
     (268, 1): ["Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2"],
-    (268, -1): ["Handikaplı Maç Sonucu (0,1) 1", "Handikaplı Maç Sonucu (0,1) X", "Handikaplı Maç Sonucu (0,1) 2"],
+    (268, -1): ["Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2"],
     (342, None): ["Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
                   "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst"],
     (343, None): ["Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
@@ -152,27 +152,27 @@ def fetch_api_data():
         "Connection": "keep-alive",
         "X-Requested-With": "XMLHttpRequest",
     }
-    url = "https://bulten.nesine.com/api/bulten/getprebultendelta?marketVersion=1716908400&eventVersion=1716908400"
+    url = "https://bulten.nesine.com/api/bulten/getprebultendelta"  # marketVersion kaldırıldı
     try:
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         match_data = response.json()
         
         if isinstance(match_data, dict) and "sg" in match_data and "EA" in match_data["sg"]:
-            return match_data["sg"]["EA"]
+            return match_data["sg"]["EA"], match_data
         else:
-            return []
+            return [], {"error": "No EA data"}
     except Exception as e:
-        return None
+        return [], {"error": str(e)}
 
 # Function to process API data into DataFrame
-def process_api_data(match_list):
+def process_api_data(match_list, raw_data):
     with status_placeholder.container():
         status_placeholder.write("API maçları işleniyor...")
         time.sleep(0.1)
     
     START_DATETIME = datetime.now(timezone.utc) + timedelta(hours=3)  # TR saati
-    END_DATETIME = START_DATETIME + timedelta(hours=2)
+    END_DATETIME = START_DATETIME + timedelta(hours=24)  # 24 saatlik aralık
     with status_placeholder.container():
         status_placeholder.write(f"Analiz aralığı: {START_DATETIME.strftime('%d.%m.%Y %H:%M')} - {END_DATETIME.strftime('%d.%m.%Y %H:%M')}")
         time.sleep(0.1)
@@ -180,23 +180,29 @@ def process_api_data(match_list):
     api_matches = []
     tarih_samples = []
     handicap_samples = []
+    skipped_matches = []
+    
     for match in match_list:
         if not isinstance(match, dict):
+            skipped_matches.append({"reason": "Not a dict", "data": str(match)[:50]})
             continue
         
-        match_date = match.get("D", "18.04.2025")
+        match_date = match.get("D", "")
         match_time = match.get("T", "")
         if match_date and len(tarih_samples) < 5:
             tarih_samples.append(f"{match_date} {match_time}")
         
         try:
-            match_datetime = datetime.strptime(f"{match_date} {match_time or '00:00'}", "%d.%m.%Y %H:%M").replace(tzinfo=timezone.utc)
-            match_datetime = match_datetime + timedelta(hours=3)  # TR saati (UTC+3)
+            if not match_date or not match_time:
+                raise ValueError("Missing date or time")
+            match_datetime = datetime.strptime(f"{match_date} {match_time}", "%d.%m.%Y %H:%M").replace(tzinfo=timezone.utc)
+            match_datetime = match_datetime + timedelta(hours=3)  # TR saati
         except ValueError as e:
-            st.warning(f"Tarih parse hatası: {match_date} {match_time} - {str(e)}. Maç atlanıyor.")
-            continue
+            match_datetime = datetime.now(timezone.utc) + timedelta(hours=3)  # Varsayılan: Şu an
+            skipped_matches.append({"reason": f"Date parse error: {str(e)}", "date": match_date, "time": match_time})
         
         if not (START_DATETIME <= match_datetime <= END_DATETIME):
+            skipped_matches.append({"reason": "Outside time range", "date": match_date, "time": match_time})
             continue
         
         league_code = match.get("LC", None)
@@ -237,6 +243,12 @@ def process_api_data(match_list):
         api_matches.append(match_info)
     
     api_df = pd.DataFrame(api_matches)
+    if api_df.empty:
+        with status_placeholder.container():
+            status_placeholder.write(f"Hata: Hiç maç işlenemedi. API verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
+            status_placeholder.write(f"Atlanma nedenleri: {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
+            status_placeholder.write(f"Raw API: {str(raw_data)[:500]}")
+    
     if 'Maç Sonucu 1' not in api_df.columns:
         api_df['Maç Sonucu 1'] = 2.0
     if 'Maç Sonucu X' not in api_df.columns:
@@ -394,10 +406,10 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", dtype=str)  # Tüm sütunlar string
             
             # Sütun isimlerini büyük-küçük harf duyarsız kontrol et
-            data_columns_lower = [col.lower() for col in data.columns]
-            excel_columns_lower = [col.lower() for col in excel_columns_basic]
+            data_columns_lower = [col.lower().strip() for col in data.columns]
+            excel_columns_lower = [col.lower().strip() for col in excel_columns_basic]
             available_columns = [data.columns[i] for i, col in enumerate(data_columns_lower) if col in excel_columns_lower]
-            missing_columns = [col for col in excel_columns_basic if col.lower() not in data_columns_lower]
+            missing_columns = [col for col in excel_columns_basic if col.lower().strip() not in data_columns_lower]
             
             status_placeholder.write(f"Excel sütunları: {', '.join(data.columns)}")
             if missing_columns:
@@ -428,12 +440,12 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             
             status_placeholder.write("API verisi çekiliyor...")
             time.sleep(0.1)
-            match_list = fetch_api_data()
+            match_list, raw_data = fetch_api_data()
             if not match_list:
-                st.error("API verisi alınamadı. Lütfen daha sonra tekrar deneyin.")
+                st.error(f"API verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
                 st.stop()
             
-            api_df = process_api_data(match_list)
+            api_df = process_api_data(match_list, raw_data)
             if api_df.empty:
                 st.error("API maçları işlenemedi. Lütfen verileri kontrol edin.")
                 st.stop()
