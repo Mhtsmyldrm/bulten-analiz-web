@@ -523,12 +523,12 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
             style_dataframe(st.session_state.iyms_df, st.session_state.output_rows),
             height=600,
             use_container_width=True,
-            column_config={col: st.column_config.Column(sortable=False) for col in st.session_state.iyms_df.columns}
+            disable_sorting=True
         )
     with tab2:
         st.dataframe(
             style_dataframe(st.session_state.main_df, st.session_state.output_rows),
             height=600,
             use_container_width=True,
-            column_config={col: st.column_config.Column(sortable=False) for col in st.session_state.main_df.columns}
+            disable_sorting=True
         )
