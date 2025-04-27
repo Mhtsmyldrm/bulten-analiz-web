@@ -493,7 +493,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 else:
                     main_rows.extend(current_group)
             
-            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Saat", "Tarih", 
+            columns = ["Benzerlik (%)", "İY/MS Bültende Var mı", "Oran Sayısı", "Saat", "Tarih", 
                        "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"]
             iyms_df = pd.DataFrame([r for r in iyms_rows if r], columns=columns)
             main_df = pd.DataFrame([r for r in main_rows if r], columns=columns)
