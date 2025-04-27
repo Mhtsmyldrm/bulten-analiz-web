@@ -11,7 +11,7 @@ from datetime import timezone
 # CSS for mobile optimization and styling
 st.markdown("""
 <style>
-h1 { font-weight: bold; color: #333; }
+h1 { font-weight: bold; color: #57e30b; }
 .stButton button { background-color: #4CAF50; color: white; border-radius: 5px; }
 .stDataFrame { font-size: 12px; width: 100%; overflow-x: auto; }
 th { position: sticky; top: 0; background-color: #f0f0f0; z-index: 1; }
@@ -99,7 +99,7 @@ league_mapping = {
     24: "İN1", 12: "İN2", 52: "İNCL", 152: "İNLK", 43: "İNP", 129: "İS1", 1951: "İS2", 1975: "İSV", 51: "İSÇ",
     579: "İTA", 1774: "İTB", 10096: "İTC", 642: "JAP", 1873: "NOR", 202: "POL", 1897: "POR2", 566: "POR",
     1980: "T1L", 584: "TSL", 20152: "BEL", 45056: "BEL", 205: "İRL", 349: "İSÇ2", 143: "İTA", 623: "NOR3", 1259: "ÇEK",
-    35072: "HİNSL", 1238: "ÇİN2", 1894: "POL2", 1913: "ROM"
+    35072: "HİNSL", 1238: "ÇİN2", 1894: "POL2", 1913: "ROM", 45: "AL1", 573: "NOR"
 }
 
 # Function to style DataFrame
@@ -152,7 +152,7 @@ def fetch_api_data():
         "Connection": "keep-alive",
         "X-Requested-With": "XMLHttpRequest",
     }
-    url = "https://bulten.nesine.com/api/bulten/getprebultendelta?eventVersion=462376563&marketVersion=462376563&oddVersion=1712799325&_=1743545516827"  # marketVersion kaldırıldı
+    url = "https://bulten.nesine.com/api/bulten/getprebultendelta?eventVersion=462376563&marketVersion=462376563&oddVersion=1712799325&_=1743545516827"  # Dinamik URL
     try:
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
@@ -172,7 +172,7 @@ def process_api_data(match_list, raw_data):
         time.sleep(0.1)
     
     START_DATETIME = datetime.now(timezone.utc) + timedelta(hours=3)  # TR saati
-    END_DATETIME = START_DATETIME + timedelta(hours=24)  # 24 saatlik aralık
+    END_DATETIME = START_DATETIME + timedelta(hours=2)  # 2 saatlik aralık
     with status_placeholder.container():
         status_placeholder.write(f"Analiz aralığı: {START_DATETIME.strftime('%d.%m.%Y %H:%M')} - {END_DATETIME.strftime('%d.%m.%Y %H:%M')}")
         time.sleep(0.1)
@@ -211,10 +211,11 @@ def process_api_data(match_list, raw_data):
         match_info = {
             "Saat": match_time,
             "Tarih": match_date,
+            "match_datetime": match_datetime,  # Sıralama için
             "Ev Sahibi Takım": match.get("HN", ""),
             "Deplasman Takım": match.get("AN", ""),
             "Lig Adı": league_name,
-            "İY/MS Bültende Var mı": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok"
+            "İY/MS": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok"
         }
         
         filled_columns = []
@@ -245,9 +246,14 @@ def process_api_data(match_list, raw_data):
     api_df = pd.DataFrame(api_matches)
     if api_df.empty:
         with status_placeholder.container():
-            status_placeholder.write(f"Hata: Hiç maç işlenemedi. API verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
+            status_placeholder.write(f"Hata: Hiç maç işlenemedi. Bülten verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
             status_placeholder.write(f"Atlanma nedenleri: {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
             status_placeholder.write(f"Raw API: {str(raw_data)[:500]}")
+        return api_df
+    
+    # Maçları başlama saatine göre sırala
+    api_df = api_df.sort_values(by="match_datetime", ascending=True).reset_index(drop=True)
+    api_df = api_df.drop(columns=["match_datetime"])  # Geçici sütunu kaldır
     
     if 'Maç Sonucu 1' not in api_df.columns:
         api_df['Maç Sonucu 1'] = 2.0
@@ -262,9 +268,10 @@ def process_api_data(match_list, raw_data):
             api_df[col] = api_df[col].where((api_df[col] > 1.0) & (api_df[col] < 100.0), np.nan)
     
     with status_placeholder.container():
-        status_placeholder.write(f"API'den {len(api_df)} maç işlendi.")
-        status_placeholder.write(f"API maçlarının Tarih örnekleri: {tarih_samples}")
-        status_placeholder.write(f"Handikaplı Maç Sonucu (0,1) örnekleri: {handicap_samples}")
+        status_placeholder.write(f"Bültenden {len(api_df)} maç işlendi.")
+        status_placeholder.write(f"Bülten maçlarının Tarih örnekleri: {tarih_samples}")
+        status_placeholder.write(f"Handikaplı Maç Sonucu (-1,0) örnekleri: {handicap_samples}")
+        status_placeholder.write(f"Sıralı maç saatleri: {api_df['Saat'].head(5).tolist()}")
         time.sleep(0.1)
     return api_df
 
@@ -317,7 +324,7 @@ def find_similar_matches(api_df, data):
         
         match_info = {
             "Benzerlik (%)": "",
-            "İY/MS Bültende Var mı": row["İY/MS Bültende Var mı"],
+            "İY/MS": row["İY/MS"],
             "Oran Sayısı": row["Oran Sayısı"],
             "Saat": row["Saat"],
             "Tarih": row["Tarih"],
@@ -336,12 +343,12 @@ def find_similar_matches(api_df, data):
             data_row = match["data_row"]
             match_info = {
                 "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
-                "İY/MS Bültende Var mı": "",
+                "İY/MS": "",
                 "Oran Sayısı": ""
             }
             for col in data.columns:
                 match_info[col] = str(data_row.get(col, ""))  # Ham string olarak
-            output_rows.append(match_info)
+            Myocardial infarctionoutput_rows.append(match_info)
         
         if include_global_matches:
             data_global = data.copy()
@@ -377,7 +384,7 @@ def find_similar_matches(api_df, data):
                 data_row = match["data_row"]
                 match_info = {
                     "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
-                    "İY/MS Bültende Var mı": "",
+                    "İY/MS": "",
                     "Oran Sayısı": ""
                 }
                 for col in data.columns:
@@ -438,16 +445,16 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                     data[col] = data[col].where((data[col] > 1.0) & (data[col] < 100.0), np.nan)
             st.session_state.data = data
             
-            status_placeholder.write("API verisi çekiliyor...")
+            status_placeholder.write("Bülten verisi çekiliyor...")
             time.sleep(0.1)
             match_list, raw_data = fetch_api_data()
             if not match_list:
-                st.error(f"API verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
+                st.error(f"Bülten verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
                 st.stop()
             
             api_df = process_api_data(match_list, raw_data)
             if api_df.empty:
-                st.error("API maçları işlenemedi. Lütfen verileri kontrol edin.")
+                st.error("Bülten maçları işlenemedi. Lütfen verileri kontrol edin.")
                 st.stop()
             
             output_rows = find_similar_matches(api_df, data)
@@ -477,7 +484,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                         else:
                             main_rows.extend(current_group)
                     current_group = [row]
-                    is_iyms = row.get("İY/MS Bültende Var mı") == "Var"
+                    is_iyms = row.get("İY/MS") == "Var"
                 else:
                     current_group.append(row)
             if current_group:
@@ -486,7 +493,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 else:
                     main_rows.extend(current_group)
             
-            columns = ["Benzerlik (%)", "İY/MS Bültende Var mı", "Oran Sayısı", "Saat", "Tarih", 
+            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Saat", "Tarih", 
                        "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"]
             iyms_df = pd.DataFrame([r for r in iyms_rows if r], columns=columns)
             main_df = pd.DataFrame([r for r in main_rows if r], columns=columns)
