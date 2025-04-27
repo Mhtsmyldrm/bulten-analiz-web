@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from gdown import download
 from collections import Counter
 
@@ -104,7 +104,7 @@ league_mapping = {
 def style_dataframe(df, output_rows):
     def highlight_rows(row):
         if row["Benzerlik (%)"] == "":
-            return ['background-color: #FFFF99'] * len(row)
+            return ['background-color: #FFFF00'] * len(row)
         return [''] * len(row)
     
     def highlight_scores(df, output_rows):
@@ -129,9 +129,9 @@ def style_dataframe(df, output_rows):
             ms_scores = Counter([r.get("MS SKOR", "") for r in match_rows if r.get("MS SKOR", "") != ""])
             for idx, row in df.iterrows():
                 if row["IY SKOR"] in iy_scores and iy_scores[row["IY SKOR"]] >= 5:
-                    styles.at[idx, "IY SKOR"] = 'background-color: #90EE90'
+                    styles.at[idx, "IY SKOR"] = 'background-color: #0000FF'
                 if row["MS SKOR"] in ms_scores and ms_scores[row["MS SKOR"]] >= 5:
-                    styles.at[idx, "MS SKOR"] = 'background-color: #90EE90'
+                    styles.at[idx, "MS SKOR"] = 'background-color: #0000FF'
         return styles
     
     styled_df = df.style.apply(highlight_rows, axis=1).set_table_styles(
@@ -142,6 +142,7 @@ def style_dataframe(df, output_rows):
 
 # Function to fetch API data from Nesine
 def fetch_api_data():
+    status_placeholder.write("API verisi çekiliyor...")
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
@@ -157,6 +158,7 @@ def fetch_api_data():
         match_data = response.json()
         
         if isinstance(match_data, dict) and "sg" in match_data and "EA" in match_data["sg"]:
+            status_placeholder.write("API verisi alındı, işleniyor...")
             return match_data["sg"]["EA"]
         else:
             st.error("API yanıtında maç verisi bulunamadı!")
@@ -167,10 +169,12 @@ def fetch_api_data():
 
 # Function to process API data into DataFrame
 def process_api_data(match_list):
-    START_DATETIME = datetime.strptime("27.04.2025 13:10", "%d.%m.%Y %H:%M")
-    END_DATETIME = datetime.strptime("27.04.2025 14:40", "%d.%m.%Y %H:%M")
-    api_matches = []
+    status_placeholder.write("API maçları işleniyor...")
+    START_DATETIME = datetime.now()
+    END_DATETIME = START_DATETIME + timedelta(hours=2)
+    status_placeholder.write(f"Analiz aralığı: {START_DATETIME.strftime('%d.%m.%Y %H:%M')} - {END_DATETIME.strftime('%d.%m.%Y %H:%M')}")
     
+    api_matches = []
     for match in match_list:
         if not isinstance(match, dict):
             continue
@@ -236,10 +240,12 @@ def process_api_data(match_list):
             api_df[col] = pd.to_numeric(api_df[col], errors='coerce')
             api_df[col] = api_df[col].where((api_df[col] > 1.0) & (api_df[col] < 100.0), np.nan)
     
+    status_placeholder.write(f"API'den {len(api_df)} maç işlendi.")
     return api_df
 
 # Function to find similar matches
 def find_similar_matches(api_df, data):
+    status_placeholder.write("Maçlar analiz ediliyor...")
     output_rows = []
     min_columns = int(len(excel_columns) * 0.2)
     league_keys = set(league_mapping.values())
@@ -273,9 +279,11 @@ def find_similar_matches(api_df, data):
                 continue
             data_row = data_filtered.iloc[i]
             try:
-                match_date = pd.to_datetime(data_row.get("Tarih", "01.01.2000"), format='%d.%m.%Y %H:%M')
+                match_date = pd.to_datetime(data_row.get("Tarih", "01.01.2000") + ' ' + data_row.get("Saat", "00:00"), format='%d.%m.%Y %H:%M', errors='coerce')
+                if pd.isna(match_date):
+                    match_date = pd.to_datetime("01.01.2000")
             except:
-                match_date = pd.to_datetime("01.01.2000 00:00")
+                match_date = pd.to_datetime("01.01.2000")
             similarities.append({
                 "similarity_diff": diff_sum,
                 "similarity_percent": sim_percent,
@@ -336,9 +344,11 @@ def find_similar_matches(api_df, data):
                 if data_row["Lig Adı"] == api_league:
                     continue
                 try:
-                    match_date = pd.to_datetime(data_row.get("Tarih", "01.01.2000"), format='%d.%m.%Y %H:%M')
+                    match_date = pd.to_datetime(data_row.get("Tarih", "01.01.2000") + ' ' + data_row.get("Saat", "00:00"), format='%d.%m.%Y %H:%M', errors='coerce')
+                    if pd.isna(match_date):
+                        match_date = pd.to_datetime("01.01.2000")
                 except:
-                    match_date = pd.to_datetime("01.01.2000 00:00")
+                    match_date = pd.to_datetime("01.01.2000")
                 similarities_global.append({
                     "similarity_diff": diff_sum,
                     "similarity_percent": sim_percent,
@@ -362,18 +372,19 @@ def find_similar_matches(api_df, data):
         
         output_rows.append({})
     
+    status_placeholder.write(f"Analiz tamamlandı, {len([r for r in output_rows if r])} satır bulundu.")
     return output_rows
 
 # Analyze button
 if st.button("Analize Başla", disabled=st.session_state.analysis_done):
     try:
         with status_placeholder.container():
-            st.spinner("Excel yükleniyor...")
+            status_placeholder.write("Excel dosyası indiriliyor...")
             file_id = "11m7tX2xCavCM_cij69UaSVijFuFQbveM"
             download(f"https://drive.google.com/uc?id={file_id}", "matches.xlsx", quiet=False)
             
-            # Excel sütunlarını dinamik al
-            excel_columns_basic = ["Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"] + excel_columns
+            status_placeholder.write("Excel sütunları kontrol ediliyor...")
+            excel_columns_basic = ["Tarih", "Saat", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"] + excel_columns
             data = pd.read_excel("matches.xlsx", sheet_name="Bahisler")
             available_columns = [col for col in excel_columns_basic if col in data.columns]
             missing_columns = [col for col in excel_columns_basic if col not in data.columns]
@@ -381,12 +392,26 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             if missing_columns:
                 st.warning(f"Eksik sütunlar: {', '.join(missing_columns)}. Mevcut sütunlarla devam ediliyor.")
             
+            status_placeholder.write("Excel verisi yükleniyor...")
             data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", usecols=available_columns)
             
-            # Saat sütunu yoksa, Tarih'ten ayır
-            if "Saat" not in data.columns and "Tarih" in data.columns:
-                data["Saat"] = pd.to_datetime(data["Tarih"], format='%d.%m.%Y %H:%M', errors='coerce').dt.strftime('%H:%M')
-                data["Tarih"] = pd.to_datetime(data["Tarih"], format='%d.%m.%Y %H:%M', errors='coerce').dt.strftime('%d.%m.%Y')
+            status_placeholder.write("Excel sütunları: " + ", ".join(data.columns))
+            
+            # Tarih ve Saat işleme
+            if "Tarih" not in data.columns:
+                st.error("Hata: 'Tarih' sütunu bulunamadı. Lütfen matches.xlsx dosyasını kontrol edin.")
+                st.stop()
+            
+            status_placeholder.write("Tarih formatı işleniyor...")
+            data["Tarih"] = pd.to_datetime(data["Tarih"], errors='coerce')
+            if data["Tarih"].isna().all():
+                st.error("Hata: 'Tarih' sütununda geçerli tarih formatı bulunamadı. Örnek format: '27.04.2025 13:10'.")
+                st.stop()
+            
+            if "Saat" not in data.columns:
+                status_placeholder.write("Saat sütunu oluşturuluyor...")
+                data["Saat"] = data["Tarih"].dt.strftime('%H:%M')
+                data["Tarih"] = data["Tarih"].dt.strftime('%d.%m.%Y')
             
             for col in excel_columns:
                 if col in data.columns:
@@ -394,19 +419,16 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                     data[col] = data[col].where((data[col] > 1.0) & (data[col] < 100.0), np.nan)
             st.session_state.data = data
             
-            st.spinner("API verisi çekiliyor...")
             match_list = fetch_api_data()
             if not match_list:
                 st.error("API verisi alınamadı. Lütfen daha sonra tekrar deneyin.")
                 st.stop()
             
-            st.spinner("API verisi işleniyor...")
             api_df = process_api_data(match_list)
             if api_df.empty:
                 st.error("API maçları işlenemedi. Lütfen verileri kontrol edin.")
                 st.stop()
             
-            st.spinner("Analiz ediliyor...")
             output_rows = find_similar_matches(api_df, data)
             if not output_rows:
                 st.error("Eşleşme bulunamadı. Lütfen verileri kontrol edin.")
@@ -461,6 +483,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
 
 # Display results if analysis is done
 if st.session_state.analysis_done and st.session_state.iyms_df is not None:
+    status_placeholder.empty()
     tab1, tab2 = st.tabs(["İY/MS Bülteni", "Normal Bülten"])
     with tab1:
         st.dataframe(style_dataframe(st.session_state.iyms_df, st.session_state.output_rows), height=600)
