@@ -105,7 +105,7 @@ league_mapping = {
 # Function to style DataFrame
 def style_dataframe(df, output_rows):
     def highlight_rows(row):
-        if row["Benzerlik (%)"] == "":
+        if row["Uyum(%)"] == "":
             return ['background-color: #f70511'] * len(row)
         return [''] * len(row)
     
@@ -124,7 +124,7 @@ def style_dataframe(df, output_rows):
             groups.append(current_group)
         
         for group in groups:
-            match_rows = [r for r in group if r.get("Benzerlik (%)", "") != ""]
+            match_rows = [r for r in group if r.get("Uyum(%)", "") != ""]
             if len(match_rows) < 5:
                 continue
             iy_scores = Counter([r.get("IY SKOR", "") for r in match_rows if r.get("IY SKOR", "") != ""])
@@ -239,7 +239,7 @@ def process_api_data(match_list, raw_data):
                 if key == (268, '-1') and len(handicap_samples) < 5:
                     handicap_samples.append(f"{matched_column}: {odds}")
         
-        match_info["Oran Sayısı"] = f"{len(filled_columns)}/{len(excel_columns)}"
+        match_info["Oran"] = f"{len(filled_columns)}/{len(excel_columns)}"
         api_matches.append(match_info)
     
     api_df = pd.DataFrame(api_matches)
@@ -321,9 +321,9 @@ def find_similar_matches(api_df, data):
         top_league_matches = similarities[:5]
         
         match_info = {
-            "Benzerlik (%)": "",
+            "Uyum(%)": "",
             "İY/MS": row["İY/MS"],
-            "Oran Sayısı": row["Oran Sayısı"],
+            "Oran": row["Oran"],
             "Saat": row["Saat"],
             "Tarih": row["Tarih"],
             "Ev Sahibi Takım": row["Ev Sahibi Takım"],
@@ -340,9 +340,9 @@ def find_similar_matches(api_df, data):
         for match in top_league_matches:
             data_row = match["data_row"]
             match_info = {
-                "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
+                "Uyum(%)": f"{match['similarity_percent']:.2f}%",
                 "İY/MS": "",
-                "Oran Sayısı": ""
+                "Oran": ""
             }
             for col in data.columns:
                 match_info[col] = str(data_row.get(col, ""))  # Ham string olarak
@@ -381,9 +381,9 @@ def find_similar_matches(api_df, data):
             for match in top_global_matches:
                 data_row = match["data_row"]
                 match_info = {
-                    "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
+                    "Uyum(%)": f"{match['similarity_percent']:.2f}%",
                     "İY/MS": "",
-                    "Oran Sayısı": ""
+                    "Oran": ""
                 }
                 for col in data.columns:
                     match_info[col] = str(data_row.get(col, ""))  # Ham string olarak
@@ -472,7 +472,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                             main_rows.append({})
                     current_group = []
                     continue
-                if row.get("Benzerlik (%)") == "":
+                if row.get("Uyum(%)") == "":
                     if current_group:
                         if is_iyms:
                             iyms_rows.extend(current_group)
@@ -488,7 +488,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 else:
                     main_rows.extend(current_group)
             
-            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Saat", "Tarih", 
+            columns = ["Uyum(%)", "İY/MS", "Oran", "Saat", "Tarih", 
                        "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"]
             iyms_df = pd.DataFrame([r for r in iyms_rows if r], columns=columns)
             main_df = pd.DataFrame([r for r in main_rows if r], columns=columns)
