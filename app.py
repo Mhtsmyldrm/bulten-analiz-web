@@ -2,11 +2,21 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+import logging
 from datetime import datetime, timedelta
 from gdown import download
 from collections import Counter
 import time
 from datetime import timezone
+import json
+
+# Logging ayarları
+logging.basicConfig(
+    filename=f"bulten_log_{datetime.now().strftime('%Y%m%d')}.txt",
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # CSS for mobile optimization and styling
 st.markdown("""
@@ -152,17 +162,45 @@ def fetch_api_data():
         "Connection": "keep-alive",
         "X-Requested-With": "XMLHttpRequest",
     }
-    url = "https://bulten.nesine.com/api/bulten/getprebultendelta?eventVersion=462376563&marketVersion=462376563&oddVersion=1712799325&_=1743545516827"  # Dinamik URL
+    
+    # 1. getprebulten ile versiyon numaralarını al
+    logger.info("getprebulten çağrılıyor...")
     try:
-        response = requests.get(url, headers=headers, timeout=30)
+        prebulten_url = "https://bulten.nesine.com/api/bulten/getprebulten"
+        response = requests.get(prebulten_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        prebulten_data = response.json()
+        logger.info(f"getprebulten yanıtı: {json.dumps(prebulten_data, indent=2)[:500]}")
+        
+        if not (isinstance(prebulten_data, dict) and "sg" in prebulten_data):
+            logger.error("getprebulten yanıtında sg bulunamadı!")
+            return [], {"error": "No sg data in getprebulten"}
+        
+        event_version = prebulten_data.get("sg", {}).get("eventVersion", 0)
+        market_version = prebulten_data.get("sg", {}).get("marketVersion", 0)
+        odd_version = prebulten_data.get("sg", {}).get("oddVersion", 0)
+        logger.info(f"Versiyonlar: eventVersion={event_version}, marketVersion={market_version}, oddVersion={odd_version}")
+    except Exception as e:
+        logger.error(f"getprebulten hatası: {str(e)}")
+        return [], {"error": f"getprebulten failed: {str(e)}"}
+    
+    # 2. getprebultendelta ile maç verisini al
+    logger.info("getprebultendelta çağrılıyor...")
+    try:
+        timestamp = int(time.time() * 1000)  # Nesine’nin timestamp formatı
+        delta_url = f"https://bulten.nesine.com/api/bulten/getprebultendelta?eventVersion={event_version}&marketVersion={market_version}&oddVersion={odd_version}&_={timestamp}"
+        response = requests.get(delta_url, headers=headers, timeout=30)
         response.raise_for_status()
         match_data = response.json()
+        logger.info(f"getprebultendelta yanıtı: {json.dumps(match_data, indent=2)[:1000]}")
         
         if isinstance(match_data, dict) and "sg" in match_data and "EA" in match_data["sg"]:
             return match_data["sg"]["EA"], match_data
         else:
+            logger.error("getprebultendelta yanıtında EA bulunamadı!")
             return [], {"error": "No EA data"}
     except Exception as e:
+        logger.error(f"getprebultendelta hatası: {str(e)}")
         return [], {"error": str(e)}
 
 # Function to process API data into DataFrame
@@ -172,7 +210,7 @@ def process_api_data(match_list, raw_data):
         time.sleep(0.1)
     
     START_DATETIME = datetime.now(timezone.utc) + timedelta(hours=3)  # TR saati
-    END_DATETIME = START_DATETIME + timedelta(hours=2)  # 2 saatlik aralık
+    END_DATETIME = START_DATETIME + timedelta(hours=2)  # 4 saatlik aralık (test için)
     with status_placeholder.container():
         status_placeholder.write(f"Analiz aralığı: {START_DATETIME.strftime('%d.%m.%Y %H:%M')} - {END_DATETIME.strftime('%d.%m.%Y %H:%M')}")
         time.sleep(0.1)
@@ -185,6 +223,7 @@ def process_api_data(match_list, raw_data):
     for match in match_list:
         if not isinstance(match, dict):
             skipped_matches.append({"reason": "Not a dict", "data": str(match)[:50]})
+            logger.info(f"Maç atlandı, dict değil: {str(match)[:50]}")
             continue
         
         match_date = match.get("D", "")
@@ -200,9 +239,12 @@ def process_api_data(match_list, raw_data):
         except ValueError as e:
             match_datetime = datetime.now(timezone.utc) + timedelta(hours=3)  # Varsayılan: Şu an
             skipped_matches.append({"reason": f"Date parse error: {str(e)}", "date": match_date, "time": match_time})
+            logger.info(f"Maç atlandı, tarih parse hatası: {match_date} {match_time}, hata: {str(e)}")
+            continue
         
         if not (START_DATETIME <= match_datetime <= END_DATETIME):
             skipped_matches.append({"reason": "Outside time range", "date": match_date, "time": match_time})
+            logger.info(f"Maç atlandı, zaman aralığı dışı: {match_date} {match_time}")
             continue
         
         league_code = match.get("LC", None)
@@ -224,6 +266,7 @@ def process_api_data(match_list, raw_data):
             sov = market.get("SOV")
             key = (mtid, str(sov) if sov is not None else None) if mtid in [14, 20, 29, 155, 209, 268] else (mtid, None)
             if key not in mtid_mapping:
+                logger.info(f"Bilinmeyen MTID: {key} for match {match_info['Ev Sahibi Takım']} vs {match_info['Deplasman Takım']}")
                 continue
             column_names = mtid_mapping[key]
             oca_list = market.get("OCA", [])
@@ -231,8 +274,10 @@ def process_api_data(match_list, raw_data):
             for idx, outcome in enumerate(oca_list):
                 odds = outcome.get("O")
                 if odds is None or not isinstance(odds, (int, float)):
+                    logger.info(f"Geçersiz oran: MTID={mtid}, outcome={outcome.get('N', '')}, odds={odds}")
                     continue
                 if idx >= len(column_names):
+                    logger.info(f"Fazla outcome: MTID={mtid}, outcome={outcome.get('N', '')}, odds={odds}, column_names={column_names}")
                     continue
                 matched_column = column_names[idx]
                 match_info[matched_column] = float(odds)
@@ -242,13 +287,15 @@ def process_api_data(match_list, raw_data):
         
         match_info["Oran Sayısı"] = f"{len(filled_columns)}/{len(excel_columns)}"
         api_matches.append(match_info)
+        logger.info(f"Maç işlendi: {match_info['Ev Sahibi Takım']} vs {match_info['Deplasman Takım']}, oran sayısı: {match_info['Oran Sayısı']}")
     
     api_df = pd.DataFrame(api_matches)
     if api_df.empty:
         with status_placeholder.container():
             status_placeholder.write(f"Hata: Hiç maç işlenemedi. API verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
             status_placeholder.write(f"Atlanma nedenleri: {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
-            status_placeholder.write(f"Raw API: {str(raw_data)[:500]}")
+            status_placeholder.write(f"Raw API: {json.dumps(raw_data, indent=2)[:500]}")
+        logger.error(f"Hiç maç işlenemedi. API verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
         return api_df
     
     # Maçları başlama saatine göre sırala
@@ -268,11 +315,12 @@ def process_api_data(match_list, raw_data):
             api_df[col] = api_df[col].where((api_df[col] > 1.0) & (api_df[col] < 100.0), np.nan)
     
     with status_placeholder.container():
-        status_placeholder.write(f"Bültenden {len(api_df)} maç işlendi.")
-        status_placeholder.write(f"Bülten maçlarının Tarih örnekleri: {tarih_samples}")
+        status_placeholder.write(f"API'den {len(api_df)} maç işlendi.")
+        status_placeholder.write(f"API maçlarının Tarih örnekleri: {tarih_samples}")
         status_placeholder.write(f"Handikaplı Maç Sonucu (-1,0) örnekleri: {handicap_samples}")
         status_placeholder.write(f"Sıralı maç saatleri: {api_df['Saat'].head(5).tolist()}")
         time.sleep(0.1)
+    logger.info(f"API'den {len(api_df)} maç işlendi. Tarih örnekleri: {tarih_samples}")
     return api_df
 
 # Function to find similar matches
@@ -288,19 +336,23 @@ def find_similar_matches(api_df, data):
     for idx, row in api_df.iterrows():
         api_odds = {col: row[col] for col in excel_columns if col in row and pd.notna(row[col])}
         if len(api_odds) < min_columns:
+            logger.info(f"Maç atlandı, yetersiz sütun: {row['Ev Sahibi Takım']} vs {row['Deplasman Takım']}, sütun: {len(api_odds)}")
             continue
         
         api_league = row["Lig Adı"]
         include_global_matches = api_league in league_keys
         data_filtered = data[data["Lig Adı"] == api_league] if api_league in league_keys else data
         if data_filtered.empty:
+            logger.info(f"Maç atlandı, lig verisi yok: {row['Ev Sahibi Takım']} vs {row['Deplasman Takım']}, lig: {api_league}")
             continue
         
         if len(data_filtered) > 2000:
             data_filtered = data_filtered.sample(n=2000, random_state=0)
+            logger.info(f"Lig verisi {len(data_filtered)} satıra indirildi: {api_league}")
         
         common_columns = [col for col in api_odds if col in data_filtered.columns]
         if len(common_columns) < min_columns:
+            logger.info(f"Maç atlandı, yetersiz ortak sütun: {row['Ev Sahibi Takım']} vs {row['Deplasman Takım']}, sütun: {len(common_columns)}")
             continue
         
         api_odds_array = np.array([api_odds.get(col, np.nan) for col in common_columns])
@@ -357,6 +409,7 @@ def find_similar_matches(api_df, data):
             
             common_columns_global = [col for col in api_odds if col in data_global.columns]
             if len(common_columns_global) < min_columns:
+                logger.info(f"Genel bülten atlandı, yetersiz sütun: {row['Ev Sahibi Takım']} vs {row['Deplasman Takım']}, sütun: {len(common_columns_global)}")
                 continue
             
             api_odds_array_global = np.array([api_odds.get(col, np.nan) for col in common_columns_global])
@@ -396,6 +449,7 @@ def find_similar_matches(api_df, data):
     with status_placeholder.container():
         status_placeholder.write(f"Analiz tamamlandı, {len([r for r in output_rows if r])} satır bulundu.")
         time.sleep(0.1)
+    logger.info(f"Analiz tamamlandı, {len([r for r in output_rows if r])} satır bulundu.")
     return output_rows
 
 # Analyze button
@@ -419,8 +473,10 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             missing_columns = [col for col in excel_columns_basic if col.lower().strip() not in data_columns_lower]
             
             status_placeholder.write(f"Bahis Seçenekleri: {', '.join(data.columns)}")
+            logger.info(f"Bahis Seçenekleri: {', '.join(data.columns)}")
             if missing_columns:
                 st.warning(f"Eksik sütunlar: {', '.join(missing_columns)}. Mevcut sütunlarla devam ediliyor.")
+                logger.warning(f"Eksik sütunlar: {', '.join(missing_columns)}")
             
             status_placeholder.write("Geçmiş Maç verileri yükleniyor...")
             time.sleep(0.1)
@@ -428,12 +484,14 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             
             if "Tarih" not in data.columns:
                 st.error("Hata: 'Tarih' sütunu bulunamadı. Lütfen matches.xlsx dosyasını kontrol edin.")
+                logger.error("Tarih sütunu bulunamadı.")
                 st.stop()
             
             # Tarih örnekleri
             if "Tarih" in data.columns:
                 tarih_samples = data["Tarih"].head(5).tolist()
                 status_placeholder.write(f"İlk 5 Tarih örneği: {tarih_samples}")
+                logger.info(f"İlk 5 Tarih örneği: {tarih_samples}")
                 time.sleep(0.1)
             
             status_placeholder.write("Tarih string olarak alındı...")
@@ -443,23 +501,29 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 if col in data.columns:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
                     data[col] = data[col].where((data[col] > 1.0) & (data[col] < 100.0), np.nan)
+                    empty_count = data[col].isna().sum()
+                    if empty_count > 0:
+                        logger.info(f"Excel: Sütun {col}: {empty_count} boş veya geçersiz oran")
             st.session_state.data = data
             
-            status_placeholder.write("Bülten verisi çekiliyor...")
+            status_placeholder.write("API verisi çekiliyor...")
             time.sleep(0.1)
             match_list, raw_data = fetch_api_data()
             if not match_list:
-                st.error(f"Bülten verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
+                st.error(f"API verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
+                logger.error(f"API verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
                 st.stop()
             
             api_df = process_api_data(match_list, raw_data)
             if api_df.empty:
-                st.error("Bülten maçları işlenemedi. Lütfen verileri kontrol edin.")
+                st.error("API maçları işlenemedi. Lütfen verileri kontrol edin.")
+                logger.error("API maçları işlenemedi.")
                 st.stop()
             
             output_rows = find_similar_matches(api_df, data)
             if not output_rows:
                 st.error("Eşleşme bulunamadı. Lütfen verileri kontrol edin.")
+                logger.error("Eşleşme bulunamadı.")
                 st.stop()
             
             iyms_rows = []
@@ -504,9 +568,11 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             st.session_state.analysis_done = True
             
             st.success("Analiz tamamlandı!")
+            logger.info("Analiz tamamlandı!")
     
     except Exception as e:
         st.error(f"Hata oluştu: {str(e)}")
+        logger.error(f"Hata oluştu: {str(e)}")
         st.stop()
 
 # Display results if analysis is done
