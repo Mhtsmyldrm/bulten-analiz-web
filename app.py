@@ -14,7 +14,8 @@ st.markdown("""
 h1 { font-weight: bold; color: #05f705; }
 .stButton button { background-color: #4CAF50; color: white; border-radius: 5px; }
 .stDataFrame { font-size: 12px; width: 100%; overflow-x: auto; }
-th { position: sticky; top: 0; background-color: #f0f0f0; z-index: 1; }
+th { position: sticky; top: 0; background-color: #f0f0f0; z-index: 1; pointer-events: none; }
+.stDataFrame th:hover { cursor: default; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -523,12 +524,10 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
             style_dataframe(st.session_state.iyms_df, st.session_state.output_rows),
             height=600,
             use_container_width=True,
-            disable_sorting=True
         )
     with tab2:
         st.dataframe(
             style_dataframe(st.session_state.main_df, st.session_state.output_rows),
             height=600,
             use_container_width=True,
-            disable_sorting=True
         )
