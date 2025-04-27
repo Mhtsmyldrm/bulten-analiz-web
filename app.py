@@ -130,9 +130,9 @@ def style_dataframe(df, output_rows):
             iy_scores = Counter([r.get("IY SKOR", "") for r in match_rows if r.get("IY SKOR", "") != ""])
             ms_scores = Counter([r.get("MS SKOR", "") for r in match_rows if r.get("MS SKOR", "") != ""])
             for idx, row in df.iterrows():
-                if row["IY SKOR"] in iy_scores and iy_scores[row["IY SKOR"]] >= 5:
+                if row["IY SKOR"] in iy_scores and iy_scores[row["IY SKOR"]] >= 4:
                     styles.at[idx, "IY SKOR"] = 'background-color: #0000FF'
-                if row["MS SKOR"] in ms_scores and ms_scores[row["MS SKOR"]] >= 5:
+                if row["MS SKOR"] in ms_scores and ms_scores[row["MS SKOR"]] >= 4:
                     styles.at[idx, "MS SKOR"] = 'background-color: #0000FF'
         return styles
     
@@ -262,7 +262,7 @@ def process_api_data(match_list, raw_data):
 
     # Maçları başlama saatine göre sırala
     api_df = api_df.sort_values(by="match_datetime", ascending=True).reset_index(drop=True)
-    api_df = api_df.drop(columns=["match_datetime"])  # Geçici sütunu kaldır
+    api_df = api_df.drop_columns(["match_datetime"])  # Geçici sütunu kaldır
     
     if 'Maç Sonucu 1' not in api_df.columns:
         api_df['Maç Sonucu 1'] = 2.0
@@ -519,6 +519,16 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
     status_placeholder.empty()
     tab1, tab2 = st.tabs(["İY/MS Bülteni", "Normal Bülten"])
     with tab1:
-        st.dataframe(style_dataframe(st.session_state.iyms_df, st.session_state.output_rows), height=600)
+        st.dataframe(
+            style_dataframe(st.session_state.iyms_df, st.session_state.output_rows),
+            height=600,
+            use_container_width=True,
+            column_config={col: st.column_config.Column(sortable=False) for col in st.session_state.iyms_df.columns}
+        )
     with tab2:
-        st.dataframe(style_dataframe(st.session_state.main_df, st.session_state.output_rows), height=600)
+        st.dataframe(
+            style_dataframe(st.session_state.main_df, st.session_state.output_rows),
+            height=600,
+            use_container_width=True,
+            column_config={col: st.column_config.Column(sortable=False) for col in st.session_state.main_df.columns}
+        )
