@@ -171,8 +171,8 @@ def process_api_data(match_list, raw_data):
         status_placeholder.write("Bültendeki maçlar işleniyor...")
         time.sleep(0.1)
     
-    START_DATETIME = datetime.now(timezone.utc)  # API zaten TR saatinde
-    END_DATETIME = START_DATETIME + timedelta(hours=24)  # 2 saatlik aralık
+    START_DATETIME = datetime.now(timezone.utc) + timedelta(hours=3)  # TR saati (UTC+3)
+    END_DATETIME = START_DATETIME + timedelta(hours=2)  # 2 saatlik aralık
     with status_placeholder.container():
         status_placeholder.write(f"Analiz aralığı: {START_DATETIME.strftime('%d.%m.%Y %H:%M')} - {END_DATETIME.strftime('%d.%m.%Y %H:%M')}")
         time.sleep(0.1)
@@ -195,7 +195,7 @@ def process_api_data(match_list, raw_data):
         try:
             if not match_date or not match_time:
                 raise ValueError("Missing date or time")
-            match_datetime = datetime.strptime(f"{match_date} {match_time}", "%d.%m.%Y %H:%M").replace(tzinfo=timezone.utc)
+            match_datetime = datetime.strptime(f"{match_date} {match_time}", "%d.%m.%Y %H:%M").replace(tzinfo=timezone(timedelta(hours=3)))  # TR saati
         except ValueError as e:
             skipped_matches.append({"reason": f"Date parse error: {str(e)}", "date": match_date, "time": match_time})
             continue
