@@ -98,7 +98,7 @@ mtid_mapping = {
     (342, None): ["Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
                   "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst"],
     (343, None): ["Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
-                  "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (2,5) Alt/Üst X ve Üst", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst"]
+                  "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (2,5) Alt/Üst X ve Üst", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst"],
     (326, 2.5): ["Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst"],
     (328, 1.5): ["Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst"],
     (48, None): ["Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y"],
@@ -118,7 +118,7 @@ league_mapping = {
     24: "İN1", 12: "İN2", 52: "İNCL", 152: "İNLK", 43: "İNP", 129: "İS1", 1951: "İS2", 1975: "İSV", 51: "İSÇ",
     579: "İTA", 1774: "İTB", 10096: "İTC", 642: "JAP", 1873: "NOR", 202: "POL", 1897: "POR2", 566: "POR",
     1980: "T1L", 584: "TSL", 20152: "BEL", 45056: "BEL", 205: "İRL", 349: "İSÇ2", 143: "İTA", 623: "NOR3", 1259: "ÇEK",
-    35072: "HİNSL", 1238: "ÇİN2", 1894: "POL2", 1913: "ROM", 45: "AL1", 573: "NOR", 10074: "İS3"
+    35072: "HİNSL", 1238: "ÇİN2", 1894: "POL2", 1913: "ROM", 45: "AL1", 573: "NOR", 10074: "İS3", 45269: "MEK"
 }
 
 # Function to style DataFrame
