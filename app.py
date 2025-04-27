@@ -101,7 +101,7 @@ league_mapping = {
 }
 
 # Function to style DataFrame
-def style_dataframe(df):
+def style_dataframe(df, output_rows):
     def highlight_rows(row):
         if row["Benzerlik (%)"] == "":
             return ['background-color: #FFFF99'] * len(row)
@@ -273,7 +273,7 @@ def find_similar_matches(api_df, data):
                 continue
             data_row = data_filtered.iloc[i]
             try:
-                match_date = pd.to_datetime(data_row.get("Tarih", "01.01.2000") + ' ' + data_row.get("Saat", "00:00"), format='%d.%m.%Y %H:%M')
+                match_date = pd.to_datetime(data_row.get("Tarih", "01.01.2000"), format='%d.%m.%Y %H:%M')
             except:
                 match_date = pd.to_datetime("01.01.2000 00:00")
             similarities.append({
@@ -291,7 +291,7 @@ def find_similar_matches(api_df, data):
             "İY/MS Bültende Var mı": row["İY/MS Bültende Var mı"],
             "Oran Sayısı": row["Oran Sayısı"],
             "Tarih": row["Tarih"],
-            "Saat": row["Saat"],
+            "Saat": row.get("Saat", ""),
             "Ev Sahibi Takım": row["Ev Sahibi Takım"],
             "Deplasman Takım": row["Deplasman Takım"],
             "Lig Adı": row["Lig Adı"]
@@ -336,7 +336,7 @@ def find_similar_matches(api_df, data):
                 if data_row["Lig Adı"] == api_league:
                     continue
                 try:
-                    match_date = pd.to_datetime(data_row.get("Tarih", "01.01.2000") + ' ' + data_row.get("Saat", "00:00"), format='%d.%m.%Y %H:%M')
+                    match_date = pd.to_datetime(data_row.get("Tarih", "01.01.2000"), format='%d.%m.%Y %H:%M')
                 except:
                     match_date = pd.to_datetime("01.01.2000 00:00")
                 similarities_global.append({
@@ -372,8 +372,22 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             file_id = "11m7tX2xCavCM_cij69UaSVijFuFQbveM"
             download(f"https://drive.google.com/uc?id={file_id}", "matches.xlsx", quiet=False)
             
-            excel_columns_basic = ["Tarih", "Saat", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"] + excel_columns
-            data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", usecols=excel_columns_basic)
+            # Excel sütunlarını dinamik al
+            excel_columns_basic = ["Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"] + excel_columns
+            data = pd.read_excel("matches.xlsx", sheet_name="Bahisler")
+            available_columns = [col for col in excel_columns_basic if col in data.columns]
+            missing_columns = [col for col in excel_columns_basic if col not in data.columns]
+            
+            if missing_columns:
+                st.warning(f"Eksik sütunlar: {', '.join(missing_columns)}. Mevcut sütunlarla devam ediliyor.")
+            
+            data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", usecols=available_columns)
+            
+            # Saat sütunu yoksa, Tarih'ten ayır
+            if "Saat" not in data.columns and "Tarih" in data.columns:
+                data["Saat"] = pd.to_datetime(data["Tarih"], format='%d.%m.%Y %H:%M', errors='coerce').dt.strftime('%H:%M')
+                data["Tarih"] = pd.to_datetime(data["Tarih"], format='%d.%m.%Y %H:%M', errors='coerce').dt.strftime('%d.%m.%Y')
+            
             for col in excel_columns:
                 if col in data.columns:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
@@ -449,6 +463,6 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
 if st.session_state.analysis_done and st.session_state.iyms_df is not None:
     tab1, tab2 = st.tabs(["İY/MS Bülteni", "Normal Bülten"])
     with tab1:
-        st.dataframe(style_dataframe(st.session_state.iyms_df), height=600)
+        st.dataframe(style_dataframe(st.session_state.iyms_df, st.session_state.output_rows), height=600)
     with tab2:
-        st.dataframe(style_dataframe(st.session_state.main_df), height=600)
+        st.dataframe(style_dataframe(st.session_state.main_df, st.session_state.output_rows), height=600)
