@@ -214,7 +214,7 @@ def process_api_data(match_list, raw_data):
             "Ev Sahibi Takım": match.get("HN", ""),
             "Deplasman Takım": match.get("AN", ""),
             "Lig Adı": league_name,
-            "İY/MS": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok"
+            "İY/MS": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok",
             "match_datetime": match_datetime
         }
         
