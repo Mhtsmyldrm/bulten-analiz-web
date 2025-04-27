@@ -298,7 +298,7 @@ def find_similar_matches(api_df, data):
         time.sleep(0.1)
     
     output_rows = []
-    min_columns = int(len(excel_columns) * 0.3)
+    min_columns = int(len(excel_columns) * 0.2)
     league_keys = set(league_mapping.values())
     
     for idx, row in api_df.iterrows():
