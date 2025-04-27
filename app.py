@@ -123,18 +123,25 @@ def style_dataframe(df, output_rows):
             current_group.append(row)
         if current_group:
             groups.append(current_group)
-        
+    
+        df_index = 0
         for group in groups:
             match_rows = [r for r in group if r.get("Benzerlik (%)", "") != ""]
+            group_size = len(group)
             if len(match_rows) < 5:
+                df_index += group_size
                 continue
             iy_scores = Counter([r.get("IY SKOR", "") for r in match_rows if r.get("IY SKOR", "") != ""])
             ms_scores = Counter([r.get("MS SKOR", "") for r in match_rows if r.get("MS SKOR", "") != ""])
-            for idx, row in df.iterrows():
-                if row["IY SKOR"] in iy_scores and iy_scores[row["IY SKOR"]] >= 4:
-                    styles.at[idx, "IY SKOR"] = 'background-color: #0000FF'
-                if row["MS SKOR"] in ms_scores and ms_scores[row["MS SKOR"]] >= 4:
-                    styles.at[idx, "MS SKOR"] = 'background-color: #0000FF'
+            for i in range(df_index, df_index + group_size):
+                if i >= len(df):
+                    break
+                row = df.iloc[i]
+                if row["IY SKOR"] in iy_scores and iy_scores[row["IY SKOR"]] >= 5:
+                    styles.at[i, "IY SKOR"] = 'background-color: #0000FF'
+                if row["MS SKOR"] in ms_scores and ms_scores[row["MS SKOR"]] >= 5:
+                    styles.at[i, "MS SKOR"] = 'background-color: #0000FF'
+            df_index += group_size
         return styles
     
     styled_df = df.style.apply(highlight_rows, axis=1).set_table_styles(
