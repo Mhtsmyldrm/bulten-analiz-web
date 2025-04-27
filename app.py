@@ -172,7 +172,7 @@ def process_api_data(match_list, raw_data):
         time.sleep(0.1)
     
     START_DATETIME = datetime.now(timezone.utc) + timedelta(hours=3)  # TR saati
-    END_DATETIME = START_DATETIME + timedelta(hours=24)  # 24 saatlik aralık
+    END_DATETIME = START_DATETIME + timedelta(hours=2)  # 24 saatlik aralık
     with status_placeholder.container():
         status_placeholder.write(f"Analiz aralığı: {START_DATETIME.strftime('%d.%m.%Y %H:%M')} - {END_DATETIME.strftime('%d.%m.%Y %H:%M')}")
         time.sleep(0.1)
