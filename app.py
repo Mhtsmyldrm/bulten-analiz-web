@@ -257,7 +257,7 @@ def process_api_data(match_list, raw_data):
         with status_placeholder.container():
             status_placeholder.write(f"Uyarı: 2 saatlik aralıkta maç bulunamadı. Bülten verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
             status_placeholder.write(f"Atlanma nedenleri (ilk 5): {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
-            status_placeholder.write(f"Çekilen maçlar (ilk 5): {[{k: v for k, v in s.items() if k != 'data'} for s in [s for s in skipped_matches if s['reason'] == 'Match included'][:5]]}"
+            status_placeholder.write(f"Çekilen maçlar (ilk 5): {[dict((k, v) for k, v in s.items() if k != 'data') for s in [s for s in skipped_matches if s['reason'] == 'Match included'][:5]]}")
         return api_df  # Boş DataFrame döndür ama hata fırlatma
 
     # Maçları başlama saatine göre sırala
