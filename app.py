@@ -172,7 +172,7 @@ def process_api_data(match_list, raw_data):
         time.sleep(0.1)
     
     START_DATETIME = datetime.now(timezone.utc) + timedelta(hours=3)  # TR saati
-    END_DATETIME = START_DATETIME + timedelta(hours=24)  # 24 saatlik aralık
+    END_DATETIME = START_DATETIME + timedelta(hours=2)  # 24 saatlik aralık
     with status_placeholder.container():
         status_placeholder.write(f"Analiz aralığı: {START_DATETIME.strftime('%d.%m.%Y %H:%M')} - {END_DATETIME.strftime('%d.%m.%Y %H:%M')}")
         time.sleep(0.1)
@@ -248,6 +248,11 @@ def process_api_data(match_list, raw_data):
             status_placeholder.write(f"Hata: Hiç maç işlenemedi. API verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
             status_placeholder.write(f"Atlanma nedenleri: {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
             status_placeholder.write(f"Raw API: {str(raw_data)[:500]}")
+        return api_df
+
+    # Maçları başlama saatine göre sırala
+    api_df = api_df.sort_values(by="match_datetime", ascending=True).reset_index(drop=True)
+    api_df = api_df.drop(columns=["match_datetime"])  # Geçici sütunu kaldır
     
     if 'Maç Sonucu 1' not in api_df.columns:
         api_df['Maç Sonucu 1'] = 2.0
