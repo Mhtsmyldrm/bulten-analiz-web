@@ -30,7 +30,7 @@ if "analysis_done" not in st.session_state:
 # Placeholder for status messages
 status_placeholder = st.empty()
 
-# Oran sütunları
+# Oran sütunları (Excel'e göre)
 excel_columns = [
     "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
     "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
@@ -188,15 +188,22 @@ def process_api_data(match_list):
         time.sleep(0.1)
     
     api_matches = []
+    tarih_samples = []
     for match in match_list:
         if not isinstance(match, dict):
             continue
         
         match_date = match.get("D", "18.04.2025")
         match_time = match.get("T", "")
+        if match_date and len(tarih_samples) < 5:
+            tarih_samples.append(f"{match_date} {match_time}")
+        
         try:
-            match_datetime = datetime.strptime(f"{match_date} {match_time or '00:00'}", "%d.%m.%Y %H:%M")
-        except ValueError:
+            # Offset-aware datetime oluştur
+            match_datetime = datetime.strptime(f"{match_date} {match_time or '00:00'}", "%d.%m.%Y %H:%M").replace(tzinfo=timezone.utc)
+            match_datetime = match_datetime + timedelta(hours=3)  # TR saati (UTC+3)
+        except ValueError as e:
+            st.warning(f"Tarih parse hatası: {match_date} {match_time} - {str(e)}. Maç atlanıyor.")
             continue
         
         if not (START_DATETIME <= match_datetime <= END_DATETIME):
@@ -252,6 +259,7 @@ def process_api_data(match_list):
     
     with status_placeholder.container():
         status_placeholder.write(f"API'den {len(api_df)} maç işlendi.")
+        status_placeholder.write(f"API maçlarının Tarih örnekleri: {tarih_samples}")
         time.sleep(0.1)
     return api_df
 
