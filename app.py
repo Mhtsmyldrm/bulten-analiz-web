@@ -11,7 +11,7 @@ from datetime import timezone
 # CSS for mobile optimization and styling
 st.markdown("""
 <style>
-h1 { font-weight: bold; color: #05f711; }
+h1 { font-weight: bold; color: #333; }
 .stButton button { background-color: #4CAF50; color: white; border-radius: 5px; }
 .stDataFrame { font-size: 12px; width: 100%; overflow-x: auto; }
 th { position: sticky; top: 0; background-color: #f0f0f0; z-index: 1; }
@@ -30,7 +30,7 @@ if "analysis_done" not in st.session_state:
 # Placeholder for status messages
 status_placeholder = st.empty()
 
-# Oran sütunları
+# Oran sütunları (Excel'e göre)
 excel_columns = [
     "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
     "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
@@ -53,7 +53,7 @@ excel_columns = [
     "Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst",
     "Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst",
     "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
-    "Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2",
+    "Handikaplı Maç Sonucu (0,1) 1", "Handikaplı Maç Sonucu (0,1) X", "Handikaplı Maç Sonucu (0,1) 2",
     "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
     "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst",
     "Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
@@ -84,7 +84,7 @@ mtid_mapping = {
     (212, None): ["Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst"],
     (256, None): ["Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst"],
     (268, 1): ["Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2"],
-    (268, -1): ["Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2"],
+    (268, -1): ["Handikaplı Maç Sonucu (0,1) 1", "Handikaplı Maç Sonucu (0,1) X", "Handikaplı Maç Sonucu (0,1) 2"],
     (342, None): ["Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
                   "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst"],
     (343, None): ["Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
@@ -99,14 +99,14 @@ league_mapping = {
     24: "İN1", 12: "İN2", 52: "İNCL", 152: "İNLK", 43: "İNP", 129: "İS1", 1951: "İS2", 1975: "İSV", 51: "İSÇ",
     579: "İTA", 1774: "İTB", 10096: "İTC", 642: "JAP", 1873: "NOR", 202: "POL", 1897: "POR2", 566: "POR",
     1980: "T1L", 584: "TSL", 20152: "BEL", 45056: "BEL", 205: "İRL", 349: "İSÇ2", 143: "İTA", 623: "NOR3", 1259: "ÇEK",
-    35072: "HİNSL", 1238: "ÇİN2", 1894: "POL2", 1913: "ROM", 45: "AL1", 573: "NOR"
+    35072: "HİNSL", 1238: "ÇİN2", 1894: "POL2", 1913: "ROM"
 }
 
 # Function to style DataFrame
 def style_dataframe(df, output_rows):
     def highlight_rows(row):
         if row["Benzerlik (%)"] == "":
-            return ['background-color: #bf040d'] * len(row)
+            return ['background-color: #FFFF00'] * len(row)
         return [''] * len(row)
     
     def highlight_scores(df, output_rows):
@@ -152,7 +152,7 @@ def fetch_api_data():
         "Connection": "keep-alive",
         "X-Requested-With": "XMLHttpRequest",
     }
-    url = "https://bulten.nesine.com/api/bulten/getprebultendelta?eventVersion=462376563&marketVersion=462376563&oddVersion=1712799325&_=1743545516827"  # marketVersion kaldırıldı
+    url = "https://bulten.nesine.com/api/bulten/getprebultendelta"  # marketVersion kaldırıldı
     try:
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
@@ -168,11 +168,11 @@ def fetch_api_data():
 # Function to process API data into DataFrame
 def process_api_data(match_list, raw_data):
     with status_placeholder.container():
-        status_placeholder.write("Bülten maçları işleniyor...")
+        status_placeholder.write("API maçları işleniyor...")
         time.sleep(0.1)
     
     START_DATETIME = datetime.now(timezone.utc) + timedelta(hours=3)  # TR saati
-    END_DATETIME = START_DATETIME + timedelta(hours=2)  # 24 saatlik aralık
+    END_DATETIME = START_DATETIME + timedelta(hours=24)  # 24 saatlik aralık
     with status_placeholder.container():
         status_placeholder.write(f"Analiz aralığı: {START_DATETIME.strftime('%d.%m.%Y %H:%M')} - {END_DATETIME.strftime('%d.%m.%Y %H:%M')}")
         time.sleep(0.1)
@@ -214,7 +214,7 @@ def process_api_data(match_list, raw_data):
             "Ev Sahibi Takım": match.get("HN", ""),
             "Deplasman Takım": match.get("AN", ""),
             "Lig Adı": league_name,
-            "İY/MS": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok"
+            "İY/MS Bültende Var mı": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok"
         }
         
         filled_columns = []
@@ -248,10 +248,6 @@ def process_api_data(match_list, raw_data):
             status_placeholder.write(f"Hata: Hiç maç işlenemedi. API verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
             status_placeholder.write(f"Atlanma nedenleri: {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
             status_placeholder.write(f"Raw API: {str(raw_data)[:500]}")
-
-    # Maçları başlama saatine göre sırala
-    api_df = api_df.sort_values(by="match_datetime", ascending=True).reset_index(drop=True)
-    api_df = api_df.drop(columns=["match_datetime"])  # Geçici sütunu kaldır
     
     if 'Maç Sonucu 1' not in api_df.columns:
         api_df['Maç Sonucu 1'] = 2.0
@@ -321,7 +317,7 @@ def find_similar_matches(api_df, data):
         
         match_info = {
             "Benzerlik (%)": "",
-            "İY/MS": row["İY/MS"],
+            "İY/MS Bültende Var mı": row["İY/MS Bültende Var mı"],
             "Oran Sayısı": row["Oran Sayısı"],
             "Saat": row["Saat"],
             "Tarih": row["Tarih"],
@@ -340,7 +336,7 @@ def find_similar_matches(api_df, data):
             data_row = match["data_row"]
             match_info = {
                 "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
-                "İY/MS": "",
+                "İY/MS Bültende Var mı": "",
                 "Oran Sayısı": ""
             }
             for col in data.columns:
@@ -381,7 +377,7 @@ def find_similar_matches(api_df, data):
                 data_row = match["data_row"]
                 match_info = {
                     "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
-                    "İY/MS": "",
+                    "İY/MS Bültende Var mı": "",
                     "Oran Sayısı": ""
                 }
                 for col in data.columns:
@@ -399,12 +395,12 @@ def find_similar_matches(api_df, data):
 if st.button("Analize Başla", disabled=st.session_state.analysis_done):
     try:
         with st.spinner("Analiz başlatılıyor..."):
-            status_placeholder.write("Geçmiş maç verileri indiriliyor...")
+            status_placeholder.write("Excel dosyası indiriliyor...")
             time.sleep(0.1)
             file_id = "11m7tX2xCavCM_cij69UaSVijFuFQbveM"
             download(f"https://drive.google.com/uc?id={file_id}", "matches.xlsx", quiet=False)
             
-            status_placeholder.write("Geçmiş maç verilerin bahisleri kontrol ediliyor...")
+            status_placeholder.write("Excel sütunları kontrol ediliyor...")
             time.sleep(0.1)
             excel_columns_basic = ["Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"] + excel_columns
             data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", dtype=str)  # Tüm sütunlar string
@@ -415,11 +411,11 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             available_columns = [data.columns[i] for i, col in enumerate(data_columns_lower) if col in excel_columns_lower]
             missing_columns = [col for col in excel_columns_basic if col.lower().strip() not in data_columns_lower]
             
-            status_placeholder.write(f"Bahis Seçenekleri: {', '.join(data.columns)}")
+            status_placeholder.write(f"Excel sütunları: {', '.join(data.columns)}")
             if missing_columns:
                 st.warning(f"Eksik sütunlar: {', '.join(missing_columns)}. Mevcut sütunlarla devam ediliyor.")
             
-            status_placeholder.write("Geçmiş Maç verileri yükleniyor...")
+            status_placeholder.write("Excel verisi yükleniyor...")
             time.sleep(0.1)
             data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", usecols=available_columns, dtype=str)
             
@@ -481,7 +477,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                         else:
                             main_rows.extend(current_group)
                     current_group = [row]
-                    is_iyms = row.get("İY/MS") == "Var"
+                    is_iyms = row.get("İY/MS Bültende Var mı") == "Var"
                 else:
                     current_group.append(row)
             if current_group:
@@ -490,7 +486,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 else:
                     main_rows.extend(current_group)
             
-            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Saat", "Tarih", 
+            columns = ["Benzerlik (%)", "İY/MS Bültende Var mı", "Oran Sayısı", "Saat", "Tarih", 
                        "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"]
             iyms_df = pd.DataFrame([r for r in iyms_rows if r], columns=columns)
             main_df = pd.DataFrame([r for r in main_rows if r], columns=columns)
