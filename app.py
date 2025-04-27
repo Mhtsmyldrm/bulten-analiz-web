@@ -246,10 +246,10 @@ def process_api_data(match_list, raw_data):
     api_df = pd.DataFrame(api_matches)
     if api_df.empty:
         with status_placeholder.container():
-            status_placeholder.write(f"Hata: Hiç maç işlenemedi. Bülten verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
+            status_placeholder.write(f"Uyarı: 2 saatlik aralıkta maç bulunamadı. Bülten verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
             status_placeholder.write(f"Atlanma nedenleri: {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
             status_placeholder.write(f"Raw API: {str(raw_data)[:500]}")
-        return api_df
+        return api_df  # Boş DataFrame döndür ama hata fırlatma
 
     # Maçları başlama saatine göre sırala
     api_df = api_df.sort_values(by="match_datetime", ascending=True).reset_index(drop=True)
@@ -452,9 +452,6 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 st.stop()
             
             api_df = process_api_data(match_list, raw_data)
-            if api_df.empty:
-                st.error("Bülten maçları işlenemedi. Lütfen verileri kontrol edin.")
-                st.stop()
             
             output_rows = find_similar_matches(api_df, data)
             if not output_rows:
