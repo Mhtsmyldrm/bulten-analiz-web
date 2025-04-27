@@ -170,8 +170,9 @@ def process_api_data(match_list, raw_data):
     with status_placeholder.container():
         status_placeholder.write("Bültendeki maçlar işleniyor...")
         time.sleep(0.1)
-    
-    START_DATETIME = datetime.now(timezone.utc) + timedelta(hours=3)  # TR saati (UTC+3)
+
+    from datetime import timezone, timedelta
+    START_DATETIME = datetime.now(timezone(timedelta(hours=3)))  # TR saati (UTC+3)
     END_DATETIME = START_DATETIME + timedelta(hours=2)  # 2 saatlik aralık
     with status_placeholder.container():
         status_placeholder.write(f"Analiz aralığı: {START_DATETIME.strftime('%d.%m.%Y %H:%M')} - {END_DATETIME.strftime('%d.%m.%Y %H:%M')}")
@@ -240,14 +241,23 @@ def process_api_data(match_list, raw_data):
                     handicap_samples.append(f"{matched_column}: {odds}")
         
         match_info["Oran Sayısı"] = f"{len(filled_columns)}/{len(excel_columns)}"
+        # Maçın tarih ve saatini logla
+        skipped_matches.append({
+            "reason": "Match included",
+            "date": match_date,
+            "time": match_time,
+            "match_datetime": match_datetime.strftime("%d.%m.%Y %H:%M"),
+            "home_team": match.get("HN", ""),
+            "away_team": match.get("AN", "")
+        })
         api_matches.append(match_info)
     
     api_df = pd.DataFrame(api_matches)
     if api_df.empty:
         with status_placeholder.container():
             status_placeholder.write(f"Uyarı: 2 saatlik aralıkta maç bulunamadı. Bülten verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
-            status_placeholder.write(f"Atlanma nedenleri: {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
-            status_placeholder.write(f"Raw API: {str(raw_data)[:500]}")
+            status_placeholder.write(f"Atlanma nedenleri (ilk 5): {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
+            status_placeholder.write(f"Çekilen maçlar (ilk 5): {[{k: v for k, v in s.items() if k != 'data'} for s in [s for s in skipped_matches if s['reason'] == 'Match included'][:5]]}"
         return api_df  # Boş DataFrame döndür ama hata fırlatma
 
     # Maçları başlama saatine göre sırala
