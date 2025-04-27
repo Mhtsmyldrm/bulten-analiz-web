@@ -262,7 +262,7 @@ def process_api_data(match_list, raw_data):
 
     # Maçları başlama saatine göre sırala
     api_df = api_df.sort_values(by="match_datetime", ascending=True).reset_index(drop=True)
-    api_df = api_df.drop_columns(["match_datetime"])  # Geçici sütunu kaldır
+    api_df = api_df.drop(columns=["match_datetime"])  # Geçici sütunu kaldır
     
     if 'Maç Sonucu 1' not in api_df.columns:
         api_df['Maç Sonucu 1'] = 2.0
