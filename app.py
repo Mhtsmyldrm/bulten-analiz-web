@@ -11,7 +11,7 @@ from datetime import timezone
 # CSS for mobile optimization and styling
 st.markdown("""
 <style>
-h1 { font-weight: bold; color: #57e30b; }
+h1 { font-weight: bold; color: #333; }
 .stButton button { background-color: #4CAF50; color: white; border-radius: 5px; }
 .stDataFrame { font-size: 12px; width: 100%; overflow-x: auto; }
 th { position: sticky; top: 0; background-color: #f0f0f0; z-index: 1; }
@@ -215,7 +215,7 @@ def process_api_data(match_list, raw_data):
             "Ev Sahibi Takım": match.get("HN", ""),
             "Deplasman Takım": match.get("AN", ""),
             "Lig Adı": league_name,
-            "İY/MS": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok"
+            "İY/MS Bültende Var mı": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok"
         }
         
         filled_columns = []
@@ -246,7 +246,7 @@ def process_api_data(match_list, raw_data):
     api_df = pd.DataFrame(api_matches)
     if api_df.empty:
         with status_placeholder.container():
-            status_placeholder.write(f"Hata: Hiç maç işlenemedi. Bülten verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
+            status_placeholder.write(f"Hata: Hiç maç işlenemedi. API verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
             status_placeholder.write(f"Atlanma nedenleri: {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
             status_placeholder.write(f"Raw API: {str(raw_data)[:500]}")
         return api_df
@@ -268,8 +268,8 @@ def process_api_data(match_list, raw_data):
             api_df[col] = api_df[col].where((api_df[col] > 1.0) & (api_df[col] < 100.0), np.nan)
     
     with status_placeholder.container():
-        status_placeholder.write(f"Bültenden {len(api_df)} maç işlendi.")
-        status_placeholder.write(f"Bülten maçlarının Tarih örnekleri: {tarih_samples}")
+        status_placeholder.write(f"API'den {len(api_df)} maç işlendi.")
+        status_placeholder.write(f"API maçlarının Tarih örnekleri: {tarih_samples}")
         status_placeholder.write(f"Handikaplı Maç Sonucu (-1,0) örnekleri: {handicap_samples}")
         status_placeholder.write(f"Sıralı maç saatleri: {api_df['Saat'].head(5).tolist()}")
         time.sleep(0.1)
@@ -324,7 +324,7 @@ def find_similar_matches(api_df, data):
         
         match_info = {
             "Benzerlik (%)": "",
-            "İY/MS": row["İY/MS"],
+            "İY/MS Bültende Var mı": row["İY/MS Bültende Var mı"],
             "Oran Sayısı": row["Oran Sayısı"],
             "Saat": row["Saat"],
             "Tarih": row["Tarih"],
@@ -343,7 +343,7 @@ def find_similar_matches(api_df, data):
             data_row = match["data_row"]
             match_info = {
                 "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
-                "İY/MS": "",
+                "İY/MS Bültende Var mı": "",
                 "Oran Sayısı": ""
             }
             for col in data.columns:
@@ -384,7 +384,7 @@ def find_similar_matches(api_df, data):
                 data_row = match["data_row"]
                 match_info = {
                     "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
-                    "İY/MS": "",
+                    "İY/MS Bültende Var mı": "",
                     "Oran Sayısı": ""
                 }
                 for col in data.columns:
@@ -445,16 +445,16 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                     data[col] = data[col].where((data[col] > 1.0) & (data[col] < 100.0), np.nan)
             st.session_state.data = data
             
-            status_placeholder.write("Bülten verisi çekiliyor...")
+            status_placeholder.write("API verisi çekiliyor...")
             time.sleep(0.1)
             match_list, raw_data = fetch_api_data()
             if not match_list:
-                st.error(f"Bülten verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
+                st.error(f"API verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
                 st.stop()
             
             api_df = process_api_data(match_list, raw_data)
             if api_df.empty:
-                st.error("Bülten maçları işlenemedi. Lütfen verileri kontrol edin.")
+                st.error("API maçları işlenemedi. Lütfen verileri kontrol edin.")
                 st.stop()
             
             output_rows = find_similar_matches(api_df, data)
@@ -484,7 +484,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                         else:
                             main_rows.extend(current_group)
                     current_group = [row]
-                    is_iyms = row.get("İY/MS") == "Var"
+                    is_iyms = row.get("İY/MS Bültende Var mı") == "Var"
                 else:
                     current_group.append(row)
             if current_group:
