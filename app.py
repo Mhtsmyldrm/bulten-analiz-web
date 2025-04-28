@@ -100,7 +100,7 @@ mtid_mapping = {
     (343, None): ["Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
                   "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (2,5) Alt/Üst X ve Üst", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst"],
     (326, 2.5): ["Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst"],
-    (328, 1.5): ["Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst"],
+    (328, 2.5): ["Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst"],
     (48, None): ["Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y"],
     (291, None): ["İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2"],
     (15, 2.5): ["1. Yarı 2,5 Alt/Üst Alt", "1. Yarı 2,5 Alt/Üst Üst"],
@@ -248,7 +248,7 @@ def process_api_data(match_list, raw_data):
         for market in match.get("MA", []):
             mtid = market.get("MTID")
             sov = market.get("SOV")
-            key = (mtid, str(sov) if sov is not None else None) if mtid in [14, 20, 29, 155, 209, 268] else (mtid, None)
+            key = (mtid, float(sov) if sov is not None else None) if mtid in [14, 20, 29, 155, 209, 268, 326, 328, 15, 272] else (mtid, None)
             if key not in mtid_mapping:
                 continue
             column_names = mtid_mapping[key]
