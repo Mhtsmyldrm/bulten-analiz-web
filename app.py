@@ -35,7 +35,7 @@ status_placeholder = st.empty()
 # Oran sütunları (Excel'e göre)
 excel_columns = [
     "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
-    "Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2",
+    "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
     "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst",
     "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
     "Karşılıklı Gol Var", "Karşılıklı Gol Yok",
