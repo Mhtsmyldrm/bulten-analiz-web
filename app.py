@@ -657,7 +657,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             api_df = process_api_data(match_list, raw_data, start_datetime, end_datetime)
             
             # Debug logları
-            st.write(f"API'den çekilen maç sayısı: {len(match_list)}")
+            st.write(f"Bültenden çekilen maç sayısı: {len(match_list)}")
             st.write(f"İşlenen maçlar: {len(api_df)}")
             if not api_df.empty:
                 output_rows = find_similar_matches(api_df, data)
