@@ -7,6 +7,7 @@ from gdown import download
 from collections import Counter
 import time
 from datetime import timezone
+import difflib
 
 # CSS for mobile optimization and styling
 st.markdown("""
@@ -34,45 +35,98 @@ status_placeholder = st.empty()
 # Oran sütunları (Excel'e göre)
 excel_columns = [
     "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
+    "Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2",
+    "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
+    "0,5 Alt/Üst Alt", "0,5 Alt/Üst Üst",
+    "1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst",
+    "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst",
+    "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
+    "4,5 Alt/Üst Alt", "4,5 Alt/Üst Üst",
+    "5,5 Alt/Üst Alt", "5,5 Alt/Üst Üst",
+    "6,5 Alt/Üst Alt", "6,5 Alt/Üst Üst",
+    "7,5 Alt/Üst Alt", "7,5 Alt/Üst Üst",
+    "Karşılıklı Gol Var", "Karşılıklı Gol Yok",
     "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
     "İlk Yarı/Maç Sonucu X/1", "İlk Yarı/Maç Sonucu X/X", "İlk Yarı/Maç Sonucu X/2",
     "İlk Yarı/Maç Sonucu 2/1", "İlk Yarı/Maç Sonucu 2/X", "İlk Yarı/Maç Sonucu 2/2",
-    "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
-    "2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2",
-    "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst", "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
-    "1. Yarı 1,5 Alt/Üst Alt", "1. Yarı 1,5 Alt/Üst Üst",
-    "Evsahibi 1,5 Alt/Üst Alt", "Evsahibi 1,5 Alt/Üst Üst",
-    "Deplasman 1,5 Alt/Üst Alt", "Deplasman 1,5 Alt/Üst Üst",
-    "Karşılıklı Gol Var", "Karşılıklı Gol Yok",
     "Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol", "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol",
-    "Maç Skoru 0-0", "Maç Skoru 1-0", "Maç Skoru 2-0", "Maç Skoru 2-1", "Maç Skoru 3-0", "Maç Skoru 3-1",
-    "Maç Skoru 3-2", "Maç Skoru 4-0", "Maç Skoru 4-1", "Maç Skoru 4-2", "Maç Skoru 5-0", "Maç Skoru 5-1",
-    "Maç Skoru 0-1", "Maç Skoru 1-1", "Maç Skoru 2-2", "Maç Skoru 3-3", "Maç Skoru 0-2", "Maç Skoru 1-2",
-    "Maç Skoru 0-3", "Maç Skoru 1-3", "Maç Skoru 2-3", "Maç Skoru 0-4", "Maç Skoru 1-4", "Maç Skoru 2-4",
-    "Maç Skoru 0-5", "Maç Skoru 1-5", "Maç Skoru Diğer",
-    "1. Yarı 0,5 Alt/Üst Alt", "1. Yarı 0,5 Alt/Üst Üst",
-    "Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst",
-    "Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst",
-    "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
-    "Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2",
+    "2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2",
     "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
     "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst",
     "Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
     "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (2,5) Alt/Üst X ve Üst", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst",
-    "Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst",
-    "Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst",
-    "Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y",
-    "İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2",
-    "1. Yarı 2,5 Alt/Üst Alt", "1. Yarı 2,5 Alt/Üst Üst",
     "Maç Sonucu ve (3,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (3,5) Alt/Üst X ve Alt", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Alt",
     "Maç Sonucu ve (3,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (3,5) Alt/Üst X ve Üst", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Üst",
     "Maç Sonucu ve (4,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (4,5) Alt/Üst X ve Alt", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Alt",
-    "Maç Sonucu ve (4,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (4,5) Alt/Üst X ve Üst", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Üst"
+    "Maç Sonucu ve (4,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (4,5) Alt/Üst X ve Üst", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Üst",
+    "1. Yarı 0,5 Alt/Üst Alt", "1. Yarı 0,5 Alt/Üst Üst",
+    "1. Yarı 1,5 Alt/Üst Alt", "1. Yarı 1,5 Alt/Üst Üst",
+    "1. Yarı 2,5 Alt/Üst Alt", "1. Yarı 2,5 Alt/Üst Üst",
+    "1. Yarı Alt/Üst (3,5) Alt", "1. Yarı Alt/Üst (3,5) Üst",
+    "Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst",
+    "Evsahibi 1,5 Alt/Üst Alt", "Evsahibi 1,5 Alt/Üst Üst",
+    "Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst",
+    "Evsahibi 3,5 Alt/Üst Alt", "Evsahibi 3,5 Alt/Üst Üst",
+    "Evsahibi 4,5 Alt/Üst Alt", "Evsahibi 4,5 Alt/Üst Üst",
+    "Evsahibi 5,5 Alt/Üst Alt", "Evsahibi 5,5 Alt/Üst Üst",
+    "Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst",
+    "Deplasman 1,5 Alt/Üst Alt", "Deplasman 1,5 Alt/Üst Üst",
+    "Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst",
+    "Deplasman 3,5 Alt/Üst Alt", "Deplasman 3,5 Alt/Üst Üst",
+    "Deplasman 4,5 Alt/Üst Alt", "Deplasman 4,5 Alt/Üst Üst",
+    "1. Yarı Çifte Şans 1-X", "1. Yarı Çifte Şans 1-2", "1. Yarı Çifte Şans X-2",
+    "İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2",
+    "Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y",
+    "Tek/Çift Tek", "Tek/Çift Çift",
+    "Maç Skoru 1-0", "Maç Skoru 2-0", "Maç Skoru 2-1", "Maç Skoru 3-0", "Maç Skoru 3-1", "Maç Skoru 3-2",
+    "Maç Skoru 4-0", "Maç Skoru 4-1", "Maç Skoru 4-2", "Maç Skoru 5-0", "Maç Skoru 5-1", "Maç Skoru 6-0",
+    "Maç Skoru 0-0", "Maç Skoru 1-1", "Maç Skoru 2-2", "Maç Skoru 3-3", "Maç Skoru 0-1", "Maç Skoru 0-2",
+    "Maç Skoru 1-2", "Maç Skoru 0-3", "Maç Skoru 1-3", "Maç Skoru 2-3", "Maç Skoru 0-4", "Maç Skoru 1-4",
+    "Maç Skoru 2-4", "Maç Skoru 0-5", "Maç Skoru 1-5", "Maç Skoru 0-6", "Maç Skoru Diğer",
+    "Toplam Korner Aralığı 0-8", "Toplam Korner Aralığı 9-11", "Toplam Korner Aralığı 12+",
+    "(6,5) Korner Alt/Üst Alt", "(6,5) Korner Alt/Üst Üst",
+    "(7,5) Korner Alt/Üst Alt", "(7,5) Korner Alt/Üst Üst",
+    "(8,5) Korner Alt/Üst Alt", "(8,5) Korner Alt/Üst Üst",
+    "(9,5) Korner Alt/Üst Alt", "(9,5) Korner Alt/Üst Üst",
+    "(10,5) Korner Alt/Üst Alt", "(10,5) Korner Alt/Üst Üst",
+    "(11,5) Korner Alt/Üst Alt", "(11,5) Korner Alt/Üst Üst",
+    "(12,5) Korner Alt/Üst Alt", "(12,5) Korner Alt/Üst Üst",
+    "1.Yarı (2,5) Korner Alt/Üst Alt", "1.Yarı (2,5) Korner Alt/Üst Üst",
+    "1.Yarı (3,5) Korner Alt/Üst Alt", "1.Yarı (3,5) Korner Alt/Üst Üst",
+    "1.Yarı (4,5) Korner Alt/Üst Alt", "1.Yarı (4,5) Korner Alt/Üst Üst",
+    "1.Yarı (5,5) Korner Alt/Üst Alt", "1.Yarı (5,5) Korner Alt/Üst Üst",
+    "1.Yarı (6,5) Korner Alt/Üst Alt", "1.Yarı (6,5) Korner Alt/Üst Üst",
+    "En Çok Korner 1", "En Çok Korner X", "En Çok Korner 2",
+    "1. Yarı En Çok Korner 1", "1. Yarı En Çok Korner X", "1. Yarı En Çok Korner 2",
+    "İlk Korner 1", "İlk Korner Olmaz", "İlk Korner 2",
+    "1. Yarı Korner Aralığı 0-4", "1. Yarı Korner Aralığı 5-6", "1. Yarı Korner Aralığı 7+",
+    "Korner Tek/Çift Tek", "Korner Tek/Çift Çift",
+    "(1,5) Kart Alt/Üst Alt", "(1,5) Kart Alt/Üst Üst",
+    "(2,5) Kart Alt/Üst Alt", "(2,5) Kart Alt/Üst Üst",
+    "(3,5) Kart Alt/Üst Alt", "(3,5) Kart Alt/Üst Üst",
+    "(4,5) Kart Alt/Üst Alt", "(4,5) Kart Alt/Üst Üst",
+    "(5,5) Kart Alt/Üst Alt", "(5,5) Kart Alt/Üst Üst",
+    "(6,5) Kart Alt/Üst Alt", "(6,5) Kart Alt/Üst Üst",
+    "(7,5) Kart Alt/Üst Alt", "(7,5) Kart Alt/Üst Üst",
+    "(8,5) Kart Alt/Üst Alt", "(8,5) Kart Alt/Üst Üst",
+    "(9,5) Kart Alt/Üst Alt", "(9,5) Kart Alt/Üst Üst",
+    "Kırmızı Kart Var", "Kırmızı Kart Yok",
+    "Maç Sonucu (Uzt. Dahil) 1", "Maç Sonucu (Uzt. Dahil) 2",
+    "Handikaplı Maç Sonucu (-5,0) 1", "Handikaplı Maç Sonucu (-5,0) X", "Handikaplı Maç Sonucu (-5,0) 2",
+    "Handikaplı Maç Sonucu (-4,0) 1", "Handikaplı Maç Sonucu (-4,0) X", "Handikaplı Maç Sonucu (-4,0) 2",
+    "Handikaplı Maç Sonucu (-3,0) 1", "Handikaplı Maç Sonucu (-3,0) X", "Handikaplı Maç Sonucu (-3,0) 2",
+    "Handikaplı Maç Sonucu (-2,0) 1", "Handikaplı Maç Sonucu (-2,0) X", "Handikaplı Maç Sonucu (-2,0) 2",
+    "Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2",
+    "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
+    "Handikaplı Maç Sonucu (2,0) 1", "Handikaplı Maç Sonucu (2,0) X", "Handikaplı Maç Sonucu (2,0) 2",
+    "Handikaplı Maç Sonucu (3,0) 1", "Handikaplı Maç Sonucu (3,0) X", "Handikaplı Maç Sonucu (3,0) 2",
+    "Handikaplı Maç Sonucu (4,0) 1", "Handikaplı Maç Sonucu (4,0) X", "Handikaplı Maç Sonucu (4,0) 2"
 ]
 
 # MTID eşleşmeleri
 mtid_mapping = {
     (1, None): ["Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2"],
+    (4, None): ["Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2"],
     (5, None): ["İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
                 "İlk Yarı/Maç Sonucu X/1", "İlk Yarı/Maç Sonucu X/X", "İlk Yarı/Maç Sonucu X/2",
                 "İlk Yarı/Maç Sonucu 2/1", "İlk Yarı/Maç Sonucu 2/X", "İlk Yarı/Maç Sonucu 2/2"],
@@ -80,34 +134,84 @@ mtid_mapping = {
     (9, None): ["2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2"],
     (12, None): ["2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst"],
     (13, None): ["3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst"],
-    (14, 1.5): ["1. Yarı 1,5 Alt/Üst Alt", "1. Yarı 1,5 Alt/Üst Üst"],
+    (14, 0.5): ["0,5 Alt/Üst Alt", "0,5 Alt/Üst Üst"],
+    (14, 1.5): ["1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst"],
+    (14, 4.5): ["4,5 Alt/Üst Alt", "4,5 Alt/Üst Üst"],
+    (14, 5.5): ["5,5 Alt/Üst Alt", "5,5 Alt/Üst Üst"],
+    (14, 6.5): ["6,5 Alt/Üst Alt", "6,5 Alt/Üst Üst"],
+    (14, 7.5): ["7,5 Alt/Üst Alt", "7,5 Alt/Üst Üst"],
+    (15, 1.5): ["1. Yarı 1,5 Alt/Üst Alt", "1. Yarı 1,5 Alt/Üst Üst"],
+    (15, 2.5): ["1. Yarı 2,5 Alt/Üst Alt", "1. Yarı 2,5 Alt/Üst Üst"],
+    (15, 3.5): ["1. Yarı Alt/Üst (3,5) Alt", "1. Yarı Alt/Üst (3,5) Üst"],
+    (20, 0.5): ["Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst"],
     (20, 1.5): ["Evsahibi 1,5 Alt/Üst Alt", "Evsahibi 1,5 Alt/Üst Üst"],
+    (20, 2.5): ["Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst"],
+    (20, 3.5): ["Evsahibi 3,5 Alt/Üst Alt", "Evsahibi 3,5 Alt/Üst Üst"],
+    (20, 4.5): ["Evsahibi 4,5 Alt/Üst Alt", "Evsahibi 4,5 Alt/Üst Üst"],
+    (20, 5.5): ["Evsahibi 5,5 Alt/Üst Alt", "Evsahibi 5,5 Alt/Üst Üst"],
+    (29, 0.5): ["Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst"],
     (29, 1.5): ["Deplasman 1,5 Alt/Üst Alt", "Deplasman 1,5 Alt/Üst Üst"],
+    (29, 2.5): ["Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst"],
+    (29, 3.5): ["Deplasman 3,5 Alt/Üst Alt", "Deplasman 3,5 Alt/Üst Üst"],
+    (29, 4.5): ["Deplasman 4,5 Alt/Üst Alt", "Deplasman 4,5 Alt/Üst Üst"],
     (38, None): ["Karşılıklı Gol Var", "Karşılıklı Gol Yok"],
     (43, None): ["Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol", "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol"],
-    (205, None): ["Maç Skoru 0-0", "Maç Skoru 1-0", "Maç Skoru 2-0", "Maç Skoru 2-1", "Maç Skoru 3-0", "Maç Skoru 3-1",
-                  "Maç Skoru 3-2", "Maç Skoru 4-0", "Maç Skoru 4-1", "Maç Skoru 4-2", "Maç Skoru 5-0", "Maç Skoru 5-1",
-                  "Maç Skoru 0-1", "Maç Skoru 1-1", "Maç Skoru 2-2", "Maç Skoru 3-3", "Maç Skoru 0-2", "Maç Skoru 1-2",
-                  "Maç Skoru 0-3", "Maç Skoru 1-3", "Maç Skoru 2-3", "Maç Skoru 0-4", "Maç Skoru 1-4", "Maç Skoru 2-4",
-                  "Maç Skoru 0-5", "Maç Skoru 1-5", "Maç Skoru Diğer"],
-    (209, 0.5): ["1. Yarı 0,5 Alt/Üst Alt", "1. Yarı 0,5 Alt/Üst Üst"],
-    (212, None): ["Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst"],
-    (256, None): ["Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst"],
-    (268, 1): ["Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2"],
-    (268, -1): ["Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2"],
+    (48, None): ["Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y"],
+    (155, 0.5): ["1. Yarı 0,5 Alt/Üst Alt", "1. Yarı 0,5 Alt/Üst Üst"],
+    (205, None): ["Maç Skoru 1-0", "Maç Skoru 2-0", "Maç Skoru 2-1", "Maç Skoru 3-0", "Maç Skoru 3-1", "Maç Skoru 3-2",
+                  "Maç Skoru 4-0", "Maç Skoru 4-1", "Maç Skoru 4-2", "Maç Skoru 5-0", "Maç Skoru 5-1", "Maç Skoru 6-0",
+                  "Maç Skoru 0-0", "Maç Skoru 1-1", "Maç Skoru 2-2", "Maç Skoru 3-3", "Maç Skoru 0-1", "Maç Skoru 0-2",
+                  "Maç Skoru 1-2", "Maç Skoru 0-3", "Maç Skoru 1-3", "Maç Skoru 2-3", "Maç Skoru 0-4", "Maç Skoru 1-4",
+                  "Maç Skoru 2-4", "Maç Skoru 0-5", "Maç Skoru 1-5", "Maç Skoru 0-6", "Maç Skoru Diğer"],
+    (216, 6.5): ["(6,5) Korner Alt/Üst Alt", "(6,5) Korner Alt/Üst Üst"],
+    (216, 7.5): ["(7,5) Korner Alt/Üst Alt", "(7,5) Korner Alt/Üst Üst"],
+    (216, 8.5): ["(8,5) Korner Alt/Üst Alt", "(8,5) Korner Alt/Üst Üst"],
+    (216, 9.5): ["(9,5) Korner Alt/Üst Alt", "(9,5) Korner Alt/Üst Üst"],
+    (216, 10.5): ["(10,5) Korner Alt/Üst Alt", "(10,5) Korner Alt/Üst Üst"],
+    (216, 11.5): ["(11,5) Korner Alt/Üst Alt", "(11,5) Korner Alt/Üst Üst"],
+    (216, 12.5): ["(12,5) Korner Alt/Üst Alt", "(12,5) Korner Alt/Üst Üst"],
+    (258, None): ["1. Yarı Çifte Şans 1-X", "1. Yarı Çifte Şans 1-2", "1. Yarı Çifte Şans X-2"],
+    (268, -5.0): ["Handikaplı Maç Sonucu (-5,0) 1", "Handikaplı Maç Sonucu (-5,0) X", "Handikaplı Maç Sonucu (-5,0) 2"],
+    (268, -4.0): ["Handikaplı Maç Sonucu (-4,0) 1", "Handikaplı Maç Sonucu (-4,0) X", "Handikaplı Maç Sonucu (-4,0) 2"],
+    (268, -3.0): ["Handikaplı Maç Sonucu (-3,0) 1", "Handikaplı Maç Sonucu (-3,0) X", "Handikaplı Maç Sonucu (-3,0) 2"],
+    (268, -2.0): ["Handikaplı Maç Sonucu (-2,0) 1", "Handikaplı Maç Sonucu (-2,0) X", "Handikaplı Maç Sonucu (-2,0) 2"],
+    (268, -1.0): ["Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2"],
+    (268, 1.0): ["Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2"],
+    (268, 2.0): ["Handikaplı Maç Sonucu (2,0) 1", "Handikaplı Maç Sonucu (2,0) X", "Handikaplı Maç Sonucu (2,0) 2"],
+    (268, 3.0): ["Handikaplı Maç Sonucu (3,0) 1", "Handikaplı Maç Sonucu (3,0) X", "Handikaplı Maç Sonucu (3,0) 2"],
+    (268, 4.0): ["Handikaplı Maç Sonucu (4,0) 1", "Handikaplı Maç Sonucu (4,0) X", "Handikaplı Maç Sonucu (4,0) 2"],
+    (272, 3.5): ["Maç Sonucu ve (3,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (3,5) Alt/Üst X ve Alt", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Alt",
+                 "Maç Sonucu ve (3,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (3,5) Alt/Üst X ve Üst", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Üst"],
+    (272, 4.5): ["Maç Sonucu ve (4,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (4,5) Alt/Üst X ve Alt", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Alt",
+                 "Maç Sonucu ve (4,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (4,5) Alt/Üst X ve Üst", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Üst"],
+    (291, None): ["İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2"],
+    (326, None): ["Tek/Çift Tek", "Tek/Çift Çift"],
+    (338, None): ["Toplam Korner Aralığı 0-8", "Toplam Korner Aralığı 9-11", "Toplam Korner Aralığı 12+"],
     (342, None): ["Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
                   "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst"],
     (343, None): ["Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
                   "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (2,5) Alt/Üst X ve Üst", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst"],
-    (326, 2.5): ["Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst"],
-    (328, 2.5): ["Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst"],
-    (48, None): ["Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y"],
-    (291, None): ["İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2"],
-    (15, 2.5): ["1. Yarı 2,5 Alt/Üst Alt", "1. Yarı 2,5 Alt/Üst Üst"],
-    (272, 3.5): ["Maç Sonucu ve (3,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (3,5) Alt/Üst X ve Alt", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Alt",
-                 "Maç Sonucu ve (3,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (3,5) Alt/Üst X ve Üst", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Üst"],
-    (272, 4.5): ["Maç Sonucu ve (4,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (4,5) Alt/Üst X ve Alt", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Alt",
-                 "Maç Sonucu ve (4,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (4,5) Alt/Üst X ve Üst", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Üst"]
+    (344, None): ["En Çok Korner 1", "En Çok Korner X", "En Çok Korner 2"],
+    (345, None): ["1. Yarı En Çok Korner 1", "1. Yarı En Çok Korner X", "1. Yarı En Çok Korner 2"],
+    (346, None): ["İlk Korner 1", "İlk Korner Olmaz", "İlk Korner 2"],
+    (347, None): ["1. Yarı Korner Aralığı 0-4", "1. Yarı Korner Aralığı 5-6", "1. Yarı Korner Aralığı 7+"],
+    (348, None): ["Korner Tek/Çift Tek", "Korner Tek/Çift Çift"],
+    (349, 1.5): ["(1,5) Kart Alt/Üst Alt", "(1,5) Kart Alt/Üst Üst"],
+    (349, 2.5): ["(2,5) Kart Alt/Üst Alt", "(2,5) Kart Alt/Üst Üst"],
+    (349, 3.5): ["(3,5) Kart Alt/Üst Alt", "(3,5) Kart Alt/Üst Üst"],
+    (349, 4.5): ["(4,5) Kart Alt/Üst Alt", "(4,5) Kart Alt/Üst Üst"],
+    (349, 5.5): ["(5,5) Kart Alt/Üst Alt", "(5,5) Kart Alt/Üst Üst"],
+    (349, 6.5): ["(6,5) Kart Alt/Üst Alt", "(6,5) Kart Alt/Üst Üst"],
+    (349, 7.5): ["(7,5) Kart Alt/Üst Alt", "(7,5) Kart Alt/Üst Üst"],
+    (349, 8.5): ["(8,5) Kart Alt/Üst Alt", "(8,5) Kart Alt/Üst Üst"],
+    (349, 9.5): ["(9,5) Kart Alt/Üst Alt", "(9,5) Kart Alt/Üst Üst"],
+    (350, None): ["Kırmızı Kart Var", "Kırmızı Kart Yok"],
+    (351, None): ["Maç Sonucu (Uzt. Dahil) 1", "Maç Sonucu (Uzt. Dahil) 2"],
+    (352, 2.5): ["1.Yarı (2,5) Korner Alt/Üst Alt", "1.Yarı (2,5) Korner Alt/Üst Üst"],
+    (352, 3.5): ["1.Yarı (3,5) Korner Alt/Üst Alt", "1.Yarı (3,5) Korner Alt/Üst Üst"],
+    (352, 4.5): ["1.Yarı (4,5) Korner Alt/Üst Alt", "1.Yarı (4,5) Korner Alt/Üst Üst"],
+    (352, 5.5): ["1.Yarı (5,5) Korner Alt/Üst Alt", "1.Yarı (5,5) Korner Alt/Üst Üst"],
+    (352, 6.5): ["1.Yarı (6,5) Korner Alt/Üst Alt", "1.Yarı (6,5) Korner Alt/Üst Üst"],
 }
 
 # Lig kodları eşleştirmesi
@@ -119,7 +223,9 @@ league_mapping = {
     579: "İTA", 1774: "İTB", 10096: "İTC", 642: "JAP", 1873: "NOR", 202: "POL", 1897: "POR2", 566: "POR",
     1980: "T1L", 584: "TSL", 20152: "BEL", 45056: "BEL", 205: "İRL", 349: "İSÇ2", 143: "İTA", 623: "NOR3", 1259: "ÇEK",
     35072: "HİNSL", 1238: "ÇİN2", 1894: "POL2", 1913: "ROM", 45: "AL1", 573: "NOR", 10074: "İS3", 45269: "MEK",
-    16324: "BOSN", 47754: "MLTP", 47754: "MALTP", 630: "İZL", 1881: "PER", 1878: "PAR", 1797: "JAP2" 
+    16324: "BOSN", 47754: "MLTP", 47754: "MALTP", 630: "İZL", 1881: "PER", 1878: "PAR", 1797: "JAP2", 1297: "İCON",
+    1298: "İCON", 1232: "BRK", 1814: "LET", 20401: "GUAT", 23482: "ETH", 16161: "AVNPL", 16332: "İSÇ4", 16336: "İSÇ4",
+    47754: "MALTP", 974: "ENDL1", 2001: "BAE", 10196: "SUUD", 16184: "IRAN", 5610: "BAH", 47539: "MSR", 1242: "KOL"
 }
 
 # Function to style DataFrame
@@ -150,6 +256,7 @@ def style_dataframe(df, output_rows):
             if len(match_rows) < 5:
                 df_index += group_size
                 continue
+            # IY SKOR ve MS SKOR için ayrı ayrı kontrol
             iy_scores = Counter([r.get("IY SKOR", "") for r in match_rows if r.get("IY SKOR", "") != ""])
             ms_scores = Counter([r.get("MS SKOR", "") for r in match_rows if r.get("MS SKOR", "") != ""])
             for i in range(df_index, df_index + group_size):
@@ -179,7 +286,7 @@ def fetch_api_data():
         "Connection": "keep-alive",
         "X-Requested-With": "XMLHttpRequest",
     }
-    url = "https://bulten.nesine.com/api/bulten/getprebultendelta?marketVersion=1716908400&eventVersion=1716908400"  # marketVersion kaldırıldı
+    url = "https://bulten.nesine.com/api/bulten/getprebultendelta?marketVersion=1716908400&eventVersion=1716908400"
     try:
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
@@ -198,7 +305,6 @@ def process_api_data(match_list, raw_data):
         status_placeholder.write("Bültendeki maçlar işleniyor...")
         time.sleep(0.1)
 
-    from datetime import timezone, timedelta
     START_DATETIME = datetime.now(timezone(timedelta(hours=3)))  # TR saati (UTC+3)
     END_DATETIME = START_DATETIME + timedelta(hours=2)  # 2 saatlik aralık
     with status_placeholder.container():
@@ -242,14 +348,15 @@ def process_api_data(match_list, raw_data):
             "Deplasman Takım": match.get("AN", ""),
             "Lig Adı": league_name,
             "İY/MS": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok",
-            "match_datetime": match_datetime
+            "match_datetime": match_datetime,
+            "MTIDs": [m.get("MTID") for m in match.get("MA", [])]  # Korner kontrolü için
         }
         
         filled_columns = []
         for market in match.get("MA", []):
             mtid = market.get("MTID")
             sov = market.get("SOV")
-            key = (mtid, float(sov) if sov is not None else None) if mtid in [14, 20, 29, 155, 209, 268, 326, 328, 15, 272] else (mtid, None)
+            key = (mtid, float(sov) if sov is not None else None) if mtid in [14, 15, 20, 29, 155, 268, 272, 349, 352] else (mtid, None)
             if key not in mtid_mapping:
                 continue
             column_names = mtid_mapping[key]
@@ -264,11 +371,10 @@ def process_api_data(match_list, raw_data):
                 matched_column = column_names[idx]
                 match_info[matched_column] = float(odds)
                 filled_columns.append(matched_column)
-                if key == (268, '-1') and len(handicap_samples) < 5:
+                if key == (268, -1.0) and len(handicap_samples) < 5:
                     handicap_samples.append(f"{matched_column}: {odds}")
         
         match_info["Oran Sayısı"] = f"{len(filled_columns)}/{len(excel_columns)}"
-        # Maçın tarih ve saatini logla
         skipped_matches.append({
             "reason": "Match included",
             "date": match_date,
@@ -285,11 +391,10 @@ def process_api_data(match_list, raw_data):
             status_placeholder.write(f"Uyarı: 2 saatlik aralıkta maç bulunamadı. Bülten verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
             status_placeholder.write(f"Atlanma nedenleri (ilk 5): {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
             status_placeholder.write(f"Çekilen maçlar (ilk 5): {[dict((k, v) for k, v in s.items() if k != 'data') for s in [s for s in skipped_matches if s['reason'] == 'Match included'][:5]]}")
-        return api_df  # Boş DataFrame döndür ama hata fırlatma
+        return api_df
 
-    # Maçları başlama saatine göre sırala
     api_df = api_df.sort_values(by="match_datetime", ascending=True).reset_index(drop=True)
-    api_df = api_df.drop(columns=["match_datetime"])  # Geçici sütunu kaldır
+    api_df = api_df.drop(columns=["match_datetime"])
     
     if 'Maç Sonucu 1' not in api_df.columns:
         api_df['Maç Sonucu 1'] = 2.0
@@ -310,6 +415,62 @@ def process_api_data(match_list, raw_data):
         time.sleep(0.1)
     return api_df
 
+# Function to calculate corner average
+def calculate_corner_average(data, home_team, away_team, league_name, current_date):
+    if league_name not in data["Lig Adı"].values:
+        return np.nan
+    
+    # Lig bazlı filtreleme
+    league_data = data[data["Lig Adı"] == league_name].copy()
+    
+    # Takım isimlerini normalize et ve eşleştir
+    league_teams = set(league_data["Ev Sahibi Takım"].unique()).union(set(league_data["Deplasman Takım"].unique()))
+    home_team_match = difflib.get_close_matches(home_team, league_teams, n=1, cutoff=0.6)
+    away_team_match = difflib.get_close_matches(away_team, league_teams, n=1, cutoff=0.6)
+    
+    if not home_team_match or not away_team_match:
+        return np.nan
+    
+    home_team = home_team_match[0]
+    away_team = away_team_match[0]
+    
+    # Tarihleri datetime'a çevir
+    league_data["Tarih"] = pd.to_datetime(league_data["Tarih"], errors="coerce", dayfirst=True)
+    league_data = league_data.dropna(subset=["Tarih"]).sort_values(by="Tarih", ascending=False)
+    
+    # Ev sahibi takımın son 5 maçı
+    home_matches = league_data[
+        (league_data["Ev Sahibi Takım"] == home_team) | (league_data["Deplasman Takım"] == home_team)
+    ].head(5)
+    
+    home_corners = []
+    for _, row in home_matches.iterrows():
+        if row["Ev Sahibi Takım"] == home_team:
+            corner = row["EV KORNER"] if pd.notna(row["EV KORNER"]) else 0
+        else:
+            corner = row["DEP KORNER"] if pd.notna(row["DEP KORNER"]) else 0
+        home_corners.append(corner)
+    
+    # Deplasman takımın son 5 maçı
+    away_matches = league_data[
+        (league_data["Ev Sahibi Takım"] == away_team) | (league_data["Deplasman Takım"] == away_team)
+    ].head(5)
+    
+    away_corners = []
+    for _, row in away_matches.iterrows():
+        if row["Ev Sahibi Takım"] == away_team:
+            corner = row["EV KORNER"] if pd.notna(row["EV KORNER"]) else 0
+        else:
+            corner = row["DEP KORNER"] if pd.notna(row["DEP KORNER"]) else 0
+        away_corners.append(corner)
+    
+    # Ortalama hesaplama
+    home_avg = np.mean(home_corners) if home_corners else 0
+    away_avg = np.mean(away_corners) if away_corners else 0
+    total_avg = home_avg + away_avg
+    
+    return round(total_avg, 2) if total_avg > 0 else np.nan
+
 # Function to find similar matches
 def find_similar_matches(api_df, data):
     with status_placeholder.container():
@@ -319,6 +480,8 @@ def find_similar_matches(api_df, data):
     output_rows = []
     min_columns = int(len(excel_columns) * 0.15)
     league_keys = set(league_mapping.values())
+    
+    current_date = datetime.now(timezone(timedelta(hours=3)))
     
     for idx, row in api_df.iterrows():
         api_odds = {col: row[col] for col in excel_columns if col in row and pd.notna(row[col])}
@@ -337,6 +500,13 @@ def find_similar_matches(api_df, data):
         common_columns = [col for col in api_odds if col in data_filtered.columns]
         if len(common_columns) < min_columns:
             continue
+        
+        # Korner ortalaması hesaplama
+        corner_avg = np.nan
+        if (338 in row["MTIDs"] or 216 in row["MTIDs"]) and api_league in league_keys:
+            corner_avg = calculate_corner_average(
+                data, row["Ev Sahibi Takım"], row["Deplasman Takım"], api_league, current_date
+            )
         
         api_odds_array = np.array([api_odds.get(col, np.nan) for col in common_columns])
         data_odds_array = data_filtered[common_columns].to_numpy()
@@ -361,11 +531,14 @@ def find_similar_matches(api_df, data):
             "Benzerlik (%)": "",
             "İY/MS": row["İY/MS"],
             "Oran Sayısı": row["Oran Sayısı"],
+            "Korner Ort.": corner_avg if pd.notna(corner_avg) else "",
             "Saat": row["Saat"],
             "Tarih": row["Tarih"],
             "Ev Sahibi Takım": row["Ev Sahibi Takım"],
             "Deplasman Takım": row["Deplasman Takım"],
-            "Lig Adı": row["Lig Adı"]
+            "Lig Adı": row["Lig Adı"],
+            "IY SKOR": "",
+            "MS SKOR": ""
         }
         for col in data.columns:
             if col in excel_columns:
@@ -376,13 +549,23 @@ def find_similar_matches(api_df, data):
         
         for match in top_league_matches:
             data_row = match["data_row"]
+            match_odds_count = sum(1 for col in excel_columns if col in data_row and pd.notna(data_row[col]))
             match_info = {
                 "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
                 "İY/MS": "",
-                "Oran Sayısı": ""
+                "Oran Sayısı": f"{match_odds_count}/{len(excel_columns)}",
+                "Korner Ort.": "",
+                "Saat": "",
+                "Tarih": str(data_row.get("Tarih", "")),
+                "Ev Sahibi Takım": str(data_row.get("Ev Sahibi Takım", "")),
+                "Deplasman Takım": str(data_row.get("Deplasman Takım", "")),
+                "Lig Adı": str(data_row.get("Lig Adı", "")),
+                "IY SKOR": str(data_row.get("IY SKOR", "")),
+                "MS SKOR": str(data_row.get("MS SKOR", ""))
             }
             for col in data.columns:
-                match_info[col] = str(data_row.get(col, ""))  # Ham string olarak
+                if col not in match_info:
+                    match_info[col] = str(data_row.get(col, ""))
             output_rows.append(match_info)
         
         if include_global_matches:
@@ -400,16 +583,21 @@ def find_similar_matches(api_df, data):
             similarity_percents_global = (1 - diff_sums_global / len(common_columns_global)) * 100
             
             similarities_global = []
+            min_odds_count = len(api_odds) * 0.5 if row["İY/MS"] == "Var" else 0
             for i, sim_percent in enumerate(similarity_percents_global):
                 if np.isnan(sim_percent):
                     continue
                 data_row = data_global.iloc[i]
                 if data_row["Lig Adı"] == api_league:
                     continue
+                match_odds_count = sum(1 for col in excel_columns if col in data_row and pd.notna(data_row[col]))
+                if row["İY/MS"] == "Var" and match_odds_count < min_odds_count:
+                    continue
                 similarities_global.append({
                     "similarity_diff": diff_sums_global[i],
                     "similarity_percent": sim_percent,
-                    "data_row": data_row
+                    "data_row": data_row,
+                    "odds_count": match_odds_count
                 })
             
             similarities_global.sort(key=lambda x: x["similarity_diff"])
@@ -420,10 +608,19 @@ def find_similar_matches(api_df, data):
                 match_info = {
                     "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
                     "İY/MS": "",
-                    "Oran Sayısı": ""
+                    "Oran Sayısı": f"{match['odds_count']}/{len(excel_columns)}",
+                    "Korner Ort.": "",
+                    "Saat": "",
+                    "Tarih": str(data_row.get("Tarih", "")),
+                    "Ev Sahibi Takım": str(data_row.get("Ev Sahibi Takım", "")),
+                    "Deplasman Takım": str(data_row.get("Deplasman Takım", "")),
+                    "Lig Adı": str(data_row.get("Lig Adı", "")),
+                    "IY SKOR": str(data_row.get("IY SKOR", "")),
+                    "MS SKOR": str(data_row.get("MS SKOR", ""))
                 }
                 for col in data.columns:
-                    match_info[col] = str(data_row.get(col, ""))  # Ham string olarak
+                    if col not in match_info:
+                        match_info[col] = str(data_row.get(col, ""))
                 output_rows.append(match_info)
         
         output_rows.append({})
@@ -444,10 +641,12 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             
             status_placeholder.write("Bahisler kontrol ediliyor...")
             time.sleep(0.1)
-            excel_columns_basic = ["Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"] + excel_columns
-            data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", dtype=str)  # Tüm sütunlar string
+            excel_columns_basic = [
+                "Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR",
+                "EV KORNER", "DEP KORNER"
+            ] + excel_columns
+            data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", dtype=str)
             
-            # Sütun isimlerini büyük-küçük harf duyarsız kontrol et
             data_columns_lower = [col.lower().strip() for col in data.columns]
             excel_columns_lower = [col.lower().strip() for col in excel_columns_basic]
             available_columns = [data.columns[i] for i, col in enumerate(data_columns_lower) if col in excel_columns_lower]
@@ -465,7 +664,6 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 st.error("Hata: 'Tarih' sütunu bulunamadı. Lütfen matches.xlsx dosyasını kontrol edin.")
                 st.stop()
             
-            # Tarih örnekleri
             if "Tarih" in data.columns:
                 tarih_samples = data["Tarih"].head(5).tolist()
                 status_placeholder.write(f"İlk 5 Tarih örneği: {tarih_samples}")
@@ -478,6 +676,9 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 if col in data.columns:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
                     data[col] = data[col].where((data[col] > 1.0) & (data[col] < 100.0), np.nan)
+            for col in ["EV KORNER", "DEP KORNER"]:
+                if col in data.columns:
+                    data[col] = pd.to_numeric(data[col], errors='coerce')
             st.session_state.data = data
             
             status_placeholder.write("Bülten verisi çekiliyor...")
@@ -525,7 +726,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 else:
                     main_rows.extend(current_group)
             
-            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Saat", "Tarih", 
+            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Korner Ort.", "Saat", "Tarih", 
                        "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"]
             iyms_df = pd.DataFrame([r for r in iyms_rows if r], columns=columns)
             main_df = pd.DataFrame([r for r in main_rows if r], columns=columns)
