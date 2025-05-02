@@ -659,7 +659,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             st.write(f"API'den çekilen maç sayısı: {len(match_list)}")
             st.write(f"İşlenen maçlar: {len(api_df)}")
             if not api_df.empty:
-            output_rows = find_similar_matches(api_df, data)
+                output_rows = find_similar_matches(api_df, data)
             if not output_rows:
                 st.error("Eşleşme bulunamadı. Lütfen verileri kontrol edin.")
                 st.stop()
