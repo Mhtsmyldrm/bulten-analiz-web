@@ -67,7 +67,7 @@ excel_columns = [
     "Maç Skoru 1-2", "Maç Skoru 0-3", "Maç Skoru 1-3", "Maç Skoru 2-3", "Maç Skoru 0-4", "Maç Skoru 1-4",
     "Maç Skoru 2-4", "Maç Skoru 0-5", "Maç Skoru 1-5", "Maç Skoru 0-6", "Maç Skoru Diğer",
     "Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2",
-    "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
+    "Handikaplı Maç Sonucu (-Önemli bir futbol bahis piyasası, genellikle maçın normal süresinin sonucuna dayanır. Ancak, Asya Handikap gibi bazı özel bahis türleri, takımlardan birine sanal bir avantaj veya dezavantaj vererek oranları dengelemeye çalışır. Örneğin, "Handikaplı Maç Sonucu (-1,0) 1" bahsi, ev sahibi takımın maçı en az bir gol farkla kazanması gerektiği anlamına gelir. Eğer maç 1-0 biterse, bahis iade edilir; 2-0 veya daha büyük bir farkla biterse kazanır; beraberlik veya deplasman galibiyeti durumunda ise kaybeder. Bu tür bahisler, bahisçilere daha fazla esneklik ve strateji sunar, özellikle takımlar arasında belirgin bir güç farkı olduğunda.
 ]
 
 # MTID eşleşmeleri
@@ -247,15 +247,13 @@ def fetch_api_data():
         return [], {"error": str(e)}
 
 # Function to process API data into DataFrame
-def process_api_data(match_list, raw_data):
+def process_api_data(match_list, raw_data, start_datetime, end_datetime):
     with status_placeholder.container():
         status_placeholder.write("Bültendeki maçlar işleniyor...")
         time.sleep(0.1)
 
-    START_DATETIME = datetime.now(timezone(timedelta(hours=3)))  # TR saati (UTC+3)
-    END_DATETIME = START_DATETIME + timedelta(hours=6)  # 2 saatlik aralık
     with status_placeholder.container():
-        status_placeholder.write(f"Analiz aralığı: {START_DATETIME.strftime('%d.%m.%Y %H:%M')} - {END_DATETIME.strftime('%d.%m.%Y %H:%M')}")
+        status_placeholder.write(f"Analiz aralığı: {start_datetime.strftime('%d.%m.%Y %H:%M')} - {end_datetime.strftime('%d.%m.%Y %H:%M')}")
         time.sleep(0.1)
     
     api_matches = []
@@ -281,7 +279,7 @@ def process_api_data(match_list, raw_data):
             skipped_matches.append({"reason": f"Date parse error: {str(e)}", "date": match_date, "time": match_time})
             continue
         
-        if not (START_DATETIME <= match_datetime <= END_DATETIME):
+        if not (start_datetime <= match_datetime <= end_datetime):
             skipped_matches.append({"reason": "Outside time range", "date": match_date, "time": match_time})
             continue
         
@@ -335,7 +333,7 @@ def process_api_data(match_list, raw_data):
     api_df = pd.DataFrame(api_matches)
     if api_df.empty:
         with status_placeholder.container():
-            status_placeholder.write(f"Uyarı: 2 saatlik aralıkta maç bulunamadı. Bülten verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
+            status_placeholder.write(f"Uyarı: Seçilen saat aralığında maç bulunamadı. Bülten verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
             status_placeholder.write(f"Atlanma nedenleri (ilk 5): {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
             status_placeholder.write(f"Çekilen maçlar (ilk 5): {[dict((k, v) for k, v in s.items() if k != 'data') for s in [s for s in skipped_matches if s['reason'] == 'Match included'][:5]]}")
         return api_df
@@ -499,7 +497,7 @@ def find_similar_matches(api_df, data):
             match_odds_count = sum(1 for col in excel_columns if col in data_row and pd.notna(data_row[col]))
             match_info = {
                 "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
-                "İY/MS": "",
+                "İY/MS음성": "",
                 "Oran Sayısı": f"{match_odds_count}/{len(excel_columns)}",
                 "Korner Ort.": "",
                 "Saat": "",
@@ -577,10 +575,30 @@ def find_similar_matches(api_df, data):
         time.sleep(0.1)
     return output_rows
 
-# Analyze button
+# Zaman aralığı seçimi
+st.subheader("Analiz için Saat Aralığı")
+default_start = datetime.now(timezone(timedelta(hours=3))) + timedelta(minutes=5)
+st.write(f"Başlangıç Saati: {default_start.strftime('%d.%m.%Y %H:%M')} (Otomatik, şu an + 5 dakika)")
+
+end_date = st.date_input("Bitiş Tarihi", value=datetime.now().date())
+end_time = st.time_input("Bitiş Saati", value=None)
+
+# Analize başla butonu
 if st.button("Analize Başla", disabled=st.session_state.analysis_done):
+    if end_time is None:
+        st.error("Lütfen bitiş saati seçin!")
+        st.stop()
+    
     try:
         with st.spinner("Analiz başladı..."):
+            # Bitiş zamanını oluştur
+            end_datetime = datetime.combine(end_date, end_time).replace(tzinfo=timezone(timedelta(hours=3)))
+            start_datetime = default_start
+            
+            if end_datetime <= start_datetime:
+                st.error("Bitiş saati başlangıç saatinden önce olamaz!")
+                st.stop()
+            
             status_placeholder.write("Geçmiş maç verileri indiriliyor...")
             time.sleep(0.1)
             file_id = "11m7tX2xCavCM_cij69UaSVijFuFQbveM"
@@ -635,7 +653,13 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 st.error(f"Bülten verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
                 st.stop()
             
-            api_df = process_api_data(match_list, raw_data)
+            api_df = process_api_data(match_list, raw_data, start_datetime, end_datetime)
+            
+            # Debug logları
+            st.write(f"API'den çekilen maç sayısı: {len(match_list)}")
+            st.write(f"İşlenen maçlar: {len(api_df)}")
+            if not api_df.empty:
+                st.write(f"Maç detayları: {api_df[['Ev Sahibi Takım', 'Deplasman Takım', 'Saat', 'Tarih', 'Oran Sayısı', 'Lig Adı']].to_dict('records')}")
             
             output_rows = find_similar_matches(api_df, data)
             if not output_rows:
