@@ -67,7 +67,7 @@ excel_columns = [
     "Maç Skoru 1-2", "Maç Skoru 0-3", "Maç Skoru 1-3", "Maç Skoru 2-3", "Maç Skoru 0-4", "Maç Skoru 1-4",
     "Maç Skoru 2-4", "Maç Skoru 0-5", "Maç Skoru 1-5", "Maç Skoru 0-6", "Maç Skoru Diğer",
     "Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2",
-    "Handikaplı Maç Sonucu (-Önemli bir futbol bahis piyasası, genellikle maçın normal süresinin sonucuna dayanır. Ancak, Asya Handikap gibi bazı özel bahis türleri, takımlardan birine sanal bir avantaj veya dezavantaj vererek oranları dengelemeye çalışır. Örneğin, "Handikaplı Maç Sonucu (-1,0) 1" bahsi, ev sahibi takımın maçı en az bir gol farkla kazanması gerektiği anlamına gelir. Eğer maç 1-0 biterse, bahis iade edilir; 2-0 veya daha büyük bir farkla biterse kazanır; beraberlik veya deplasman galibiyeti durumunda ise kaybeder. Bu tür bahisler, bahisçilere daha fazla esneklik ve strateji sunar, özellikle takımlar arasında belirgin bir güç farkı olduğunda.
+    "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
 ]
 
 # MTID eşleşmeleri
