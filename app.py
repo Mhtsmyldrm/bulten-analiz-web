@@ -173,7 +173,7 @@ league_mapping = {
     16324: "BOSN", 47754: "MLTP", 47754: "MALTP", 630: "İZL", 1881: "PER", 1878: "PAR", 1797: "JAP2", 1297: "İCON",
     1298: "İCON", 1232: "BRK", 1814: "LET", 20401: "GUAT", 23482: "ETH", 16161: "AVNPL", 16332: "İSÇ4", 16336: "İSÇ4",
     47754: "MALTP", 974: "ENDL1", 2001: "BAE", 10196: "SUUD", 16184: "IRAN", 5610: "BAH", 47539: "MSR", 1242: "KOL",
-    22348: "KAPL"
+    22348: "KAPL", 5161: "EKV1", 1858: "FAS", 970: "USLP", 49: "EKV1", 5571: "ELSAL", 45236: "VEN"
 }
 
 # Function to style DataFrame
