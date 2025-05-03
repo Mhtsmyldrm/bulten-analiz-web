@@ -35,6 +35,7 @@ status_placeholder = st.empty()
 # Oran sütunları (Excel'e göre)
 excel_columns = [
     "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
+    "Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2",
     "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
     "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst",
     "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
@@ -173,7 +174,14 @@ league_mapping = {
     16324: "BOSN", 47754: "MLTP", 47754: "MALTP", 630: "İZL", 1881: "PER", 1878: "PAR", 1797: "JAP2", 1297: "İCON",
     1298: "İCON", 1232: "BRK", 1814: "LET", 20401: "GUAT", 23482: "ETH", 16161: "AVNPL", 16332: "İSÇ4", 16336: "İSÇ4",
     47754: "MALTP", 974: "ENDL1", 2001: "BAE", 10196: "SUUD", 16184: "IRAN", 5610: "BAH", 47539: "MSR", 1242: "KOL",
-    22348: "KAPL", 5161: "EKV1", 1858: "FAS", 970: "USLP", 49: "EKV1", 5571: "ELSAL", 45236: "VEN"
+    22348: "KAPL", 5161: "EKV1", 1858: "FAS", 970: "USLP", 49: "EKV1", 5571: "ELSAL", 45236: "VEN", 5569: "KOSTA",
+    2841: "ARJPBN", 49: "ŞİL", 2007: "URU", 16338: "USL1", 20546: "BOLİ", 5575: "HON", 5564: "AVNPL", 16331: "GK3L",
+    5562: "AVSQ", 1326: "HK1", 986: "ÇEK2", 16461: "SLVK2", 10063: "İS4", 1995: "UKR", 16340: "VİET", 1215: "BLR",
+    22377: "LET1", 22353: "KEN", 10070: "NOR4", 16336: "İSÇ4", 15822: "EST1", 576: "MAC", 33402: "HIR2", 4: "KAZP",
+    1975: "İSV2", 997: "POL1", 1894: "POL2", 571: "NOR1", 35791: "BUL1", 1817: "LITA", 22365: "LIT1", 25886: "SIRP",
+    742: "GAFPSL", 2701: "GAF1", 33585: "İTAPŞ1", 2935: "İSV1Y", 14408: "FAROEM", 1978: "TUN1", 37159: "MSR2", 20146: "DAN1",
+    10156: "POR3", 1213: "AZERS", 22625: "BAE2", 2702: "MAC2", 2018: "GALWK", 1000: "SLVN", 19: "FİN2", 31578: "MOLD",
+    5441: "YUN"
 }
 
 # Function to style DataFrame
