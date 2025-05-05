@@ -298,24 +298,25 @@ def process_api_data(match_list, raw_data, start_datetime, end_datetime):
         
         league_code = match.get("LC", None)
         league_name = league_mapping.get(league_code, str(league_code))
-        
+
+        iy_kg_oran = "YOK"
+        for market in match.get("MA", []):
+            if market.get("MTID") == 452:
+                oca_list = market.get("OCA", [])
+                for outcome in oca_list:
+                    if outcome.get("N") == 1:
+                        odds = outcome.get("O")
+                        if odds is not None and isinstance(odds, (int, float)):
+                            iy_kg_oran = float(odds)
+                        break
+                break
+                
         match_info = {
             "Saat": match_time,
-            iy_kg_oran = "YOK"
-            for market in match.get("MA", []):
-                if market.get("MTID") == 452:
-                    oca_list = market.get("OCA", [])
-                    for outcome in oca_list:
-                        if outcome.get("N") == 1:
-                            odds = outcome.get("O")
-                            if odds is not None and isinstance(odds, (int, float)):
-                                iy_kg_oran = float(odds)
-                            break
-                    break
-            match_info["IY KG ORAN"] = iy_kg_oran
             "Tarih": match_date,
             "Ev Sahibi Takım": match.get("HN", ""),
             "Deplasman Takım": match.get("AN", ""),
+            "IY KG ORAN": iy_kg_oran,
             "Lig Adı": league_name,
             "İY/MS": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok",
             "match_datetime": match_datetime,
