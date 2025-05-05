@@ -310,7 +310,6 @@ def process_api_data(match_list, raw_data, start_datetime, end_datetime):
                             iy_kg_oran = float(odds)
                         break
                 break
-        match_info["IY KG ORAN"] = iy_kg_oran
                 
         match_info = {
             "Saat": match_time,
