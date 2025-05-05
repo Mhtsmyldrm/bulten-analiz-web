@@ -301,6 +301,18 @@ def process_api_data(match_list, raw_data, start_datetime, end_datetime):
         
         match_info = {
             "Saat": match_time,
+            iy_kg_oran = "YOK"
+            for market in match.get("MA", []):
+                if market.get("MTID") == 452:
+                    oca_list = market.get("OCA", [])
+                    for outcome in oca_list:
+                        if outcome.get("N") == 1:
+                            odds = outcome.get("O")
+                            if odds is not None and isinstance(odds, (int, float)):
+                                iy_kg_oran = float(odds)
+                            break
+                    break
+            match_info["IY KG ORAN"] = iy_kg_oran
             "Tarih": match_date,
             "Ev Sahibi Takım": match.get("HN", ""),
             "Deplasman Takım": match.get("AN", ""),
@@ -364,7 +376,7 @@ def process_api_data(match_list, raw_data, start_datetime, end_datetime):
     for col in excel_columns:
         if col in api_df.columns:
             api_df[col] = pd.to_numeric(api_df[col], errors='coerce')
-            api_df[col] = api_df[col].where((api_df[col] > 1.0) & (api_df[col] < 100.0), np.nan)
+            api_df.loc[:, col] = api_df[col].where(api_df[col] > 1.0, "")
     
     with status_placeholder.container():
         status_placeholder.write(f"Bültenden {len(api_df)} maç işlendi.")
@@ -495,6 +507,7 @@ def find_similar_matches(api_df, data):
             "Ev Sahibi Takım": row["Ev Sahibi Takım"],
             "Deplasman Takım": row["Deplasman Takım"],
             "Lig Adı": row["Lig Adı"],
+            "IY KG ORAN": row.get("IY KG ORAN", ""),
             "IY SKOR": "",
             "MS SKOR": ""
         }
@@ -510,7 +523,7 @@ def find_similar_matches(api_df, data):
             match_odds_count = sum(1 for col in excel_columns if col in data_row and pd.notna(data_row[col]))
             match_info = {
                 "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
-                "İY/MS음성": "",
+                "İY/MS": "",
                 "Oran Sayısı": f"{match_odds_count}/{len(excel_columns)}",
                 "Korner Ort.": "",
                 "Saat": "",
@@ -518,6 +531,7 @@ def find_similar_matches(api_df, data):
                 "Ev Sahibi Takım": str(data_row.get("Ev Sahibi Takım", "")),
                 "Deplasman Takım": str(data_row.get("Deplasman Takım", "")),
                 "Lig Adı": str(data_row.get("Lig Adı", "")),
+                "IY KG ORAN": "",
                 "IY SKOR": str(data_row.get("IY SKOR", "")),
                 "MS SKOR": str(data_row.get("MS SKOR", ""))
             }
@@ -573,6 +587,7 @@ def find_similar_matches(api_df, data):
                     "Ev Sahibi Takım": str(data_row.get("Ev Sahibi Takım", "")),
                     "Deplasman Takım": str(data_row.get("Deplasman Takım", "")),
                     "Lig Adı": str(data_row.get("Lig Adı", "")),
+                    "IY KG ORAN": "",
                     "IY SKOR": str(data_row.get("IY SKOR", "")),
                     "MS SKOR": str(data_row.get("MS SKOR", ""))
                 }
@@ -653,7 +668,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             for col in excel_columns:
                 if col in data.columns:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
-                    data[col] = data[col].where((data[col] > 1.0) & (data[col] < 100.0), np.nan)
+                    data.loc[:, col] = data[col].where(data[col] > 1.0, "")
             for col in ["EV KORNER", "DEP KORNER"]:
                 if col in data.columns:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
@@ -708,8 +723,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 else:
                     main_rows.extend(current_group)
             
-            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Korner Ort.", "Saat", "Tarih", 
-                       "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"]
+            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Korner Ort.", "Saat", "Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY KG ORAN", "IY SKOR", "MS SKOR"]
             iyms_df = pd.DataFrame([r for r in iyms_rows if r], columns=columns)
             main_df = pd.DataFrame([r for r in main_rows if r], columns=columns)
             
