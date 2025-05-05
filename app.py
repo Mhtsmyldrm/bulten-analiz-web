@@ -299,7 +299,7 @@ def process_api_data(match_list, raw_data, start_datetime, end_datetime):
         league_code = match.get("LC", None)
         league_name = league_mapping.get(league_code, str(league_code))
 
-        iy_kg_oran = "YOK"
+        iy_kg_oran = np.nan
         for market in match.get("MA", []):
             if market.get("MTID") == 452:
                 oca_list = market.get("OCA", [])
@@ -310,6 +310,7 @@ def process_api_data(match_list, raw_data, start_datetime, end_datetime):
                             iy_kg_oran = float(odds)
                         break
                 break
+        match_info["IY KG ORAN"] = iy_kg_oran
                 
         match_info = {
             "Saat": match_time,
@@ -377,7 +378,7 @@ def process_api_data(match_list, raw_data, start_datetime, end_datetime):
     for col in excel_columns:
         if col in api_df.columns:
             api_df[col] = pd.to_numeric(api_df[col], errors='coerce')
-            api_df.loc[:, col] = api_df[col].where(api_df[col] > 1.0, "")
+            api_df.loc[:, col] = api_df[col].where(api_df[col] > 1.0, np.nan)
     
     with status_placeholder.container():
         status_placeholder.write(f"Bültenden {len(api_df)} maç işlendi.")
@@ -479,8 +480,11 @@ def find_similar_matches(api_df, data):
                 data, row["Ev Sahibi Takım"], row["Deplasman Takım"], api_league, current_date
             )
         
-        api_odds_array = np.array([api_odds.get(col, np.nan) for col in common_columns])
-        data_odds_array = data_filtered[common_columns].to_numpy()
+        api_odds_array = np.array([
+            float(api_odds.get(col)) if api_odds.get(col) not in ["", None] else np.nan
+            for col in common_columns
+        ])
+        data_odds_array = data_filtered[common_columns].to_numpy(dtype=float, na_value=np.nan)
         diff_sums = np.nansum(np.abs(data_odds_array - api_odds_array) / np.maximum(np.abs(data_odds_array), np.abs(api_odds_array)), axis=1)
         similarity_percents = (1 - diff_sums / len(common_columns)) * 100
         
@@ -508,7 +512,7 @@ def find_similar_matches(api_df, data):
             "Ev Sahibi Takım": row["Ev Sahibi Takım"],
             "Deplasman Takım": row["Deplasman Takım"],
             "Lig Adı": row["Lig Adı"],
-            "IY KG ORAN": row.get("IY KG ORAN", ""),
+            "IY KG ORAN": "" if pd.isna(row.get("IY KG ORAN")) else row.get("IY KG ORAN"),
             "IY SKOR": "",
             "MS SKOR": ""
         }
@@ -669,7 +673,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             for col in excel_columns:
                 if col in data.columns:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
-                    data.loc[:, col] = data[col].where(data[col] > 1.0, "")
+                    data.loc[:, col] = data[col].where(data[col] > 1.0, np.nan)
             for col in ["EV KORNER", "DEP KORNER"]:
                 if col in data.columns:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
