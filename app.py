@@ -1,14 +1,17 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
-from datetime import datetime, timedelta
-from gdown import download
-from collections import Counter
-import time
-from datetime import timezone
-import difflib
 import json
+import requests
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
+from openpyxl.utils import get_column_letter
+from datetime import datetime, timezone, timedelta
+from tqdm import tqdm
+import sys
+from collections import Counter
+import difflib
+from joblib import Parallel, delayed
 import os
 
 # CSS for mobile optimization and styling
@@ -34,18 +37,22 @@ if "analysis_done" not in st.session_state:
 # Placeholder for status messages
 status_placeholder = st.empty()
 
-# Oran sütunları (analiz için gerekli, sadeleştirilebilir)
+# Oran sütunları
 excel_columns = [
     "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
     "Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2",
-    "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
+    "0,5 Alt/Üst Alt", "0,5 Alt/Üst Üst",
+    "1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst",
     "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst",
     "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
+    "4,5 Alt/Üst Alt", "4,5 Alt/Üst Üst",
     "Karşılıklı Gol Var", "Karşılıklı Gol Yok",
     "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
     "İlk Yarı/Maç Sonucu X/1", "İlk Yarı/Maç Sonucu X/X", "İlk Yarı/Maç Sonucu X/2",
     "İlk Yarı/Maç Sonucu 2/1", "İlk Yarı/Maç Sonucu 2/X", "İlk Yarı/Maç Sonucu 2/2",
     "Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol", "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol",
+    "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
+    "1. Yarı Çifte Şans 1-X", "1. Yarı Çifte Şans 1-2", "1. Yarı Çifte Şans X-2",
     "2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2",
     "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
     "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst",
@@ -57,12 +64,14 @@ excel_columns = [
     "Maç Sonucu ve (4,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (4,5) Alt/Üst X ve Üst", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Üst",
     "1. Yarı 0,5 Alt/Üst Alt", "1. Yarı 0,5 Alt/Üst Üst",
     "1. Yarı 1,5 Alt/Üst Alt", "1. Yarı 1,5 Alt/Üst Üst",
+    "1. Yarı 2,5 Alt/Üst Alt", "1. Yarı 2,5 Alt/Üst Üst",
     "Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst",
     "Evsahibi 1,5 Alt/Üst Alt", "Evsahibi 1,5 Alt/Üst Üst",
     "Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst",
     "Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst",
     "Deplasman 1,5 Alt/Üst Alt", "Deplasman 1,5 Alt/Üst Üst",
     "Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst",
+    "İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2",
     "Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y",
     "Maç Skoru 1-0", "Maç Skoru 2-0", "Maç Skoru 2-1", "Maç Skoru 3-0", "Maç Skoru 3-1", "Maç Skoru 3-2",
     "Maç Skoru 4-0", "Maç Skoru 4-1", "Maç Skoru 4-2", "Maç Skoru 5-0", "Maç Skoru 5-1", "Maç Skoru 6-0",
@@ -73,7 +82,6 @@ excel_columns = [
     "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
 ]
 
-# API'den veri çekme (v17_lig.py'den uyarlandı)
 def fetch_api_data():
     try:
         headers = {
@@ -151,7 +159,6 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             time.sleep(0.1)
             excel_columns_basic = [
                 "Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"
-                # Korner sütunları kaldırıldı
             ] + excel_columns
             data = pd.read_parquet("matches.parquet", engine="pyarrow", columns=excel_columns_basic)
             
@@ -189,7 +196,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 st.error(f"Bülten verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
                 st.stop()
             
-            api_df = process_api_data(match_list, raw_data, start_datetime, end_datetime, mtid_mapping, league_mapping)
+            api_df = process_api_data(match_list, start_datetime, end_datetime, mtid_mapping, league_mapping)
             
             # Debug logları
             st.write(f"Bültenden çekilen maç sayısı: {len(match_list)}")
@@ -263,97 +270,22 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
             use_container_width=True,
         )
 
-# Varsayımsal process_api_data (v17_lig.py'den uyarlandı)
-def process_api_data(match_list, raw_data, start_datetime, end_datetime, mtid_mapping, league_mapping):
-    api_matches = []
-    filtered_count = 0
-    total_matches = 0
-    
-    for match in match_list:
-        if not isinstance(match, dict):
-            continue
-        
-        total_matches += 1
-        markets = match.get("MA", [])
-        mbs = next((m.get("MBS", 0) for m in markets if m.get("MTID") == 1), 0)
-        
-        if mbs not in [1, 2]:
-            filtered_count += 1
-            continue
-        
-        match_date = match.get("D", "")
-        match_time = match.get("T", "")
-        try:
-            match_datetime = datetime.strptime(f"{match_date} {match_time}", "%d.%m.%Y %H:%M").replace(tzinfo=timezone(timedelta(hours=3)))
-        except ValueError:
-            filtered_count += 1
-            continue
-        
-        if not (start_datetime <= match_datetime <= end_datetime):
-            filtered_count += 1
-            continue
-        
-        match_info = {
-            "Tarih": match_date,
-            "Saat": match_time,
-            "Ev Sahibi Takım": match.get("HN", ""),
-            "Deplasman Takım": match.get("AN", ""),
-            "Lig Adı": league_mapping.get(match.get("LC"), str(match.get("LC"))),
-            "İY/MS": "Var" if any(m.get("MTID") == 5 for m in markets) else "Yok",
-            "match_datetime": match_datetime,
-            "MA": markets,
-            "MTIDs": [m.get("MTID") for m in markets]
-        }
-        
-        filled_columns = []
-        for market in markets:
-            mtid = market.get("MTID")
-            sov = market.get("SOV")
-            key = (mtid, float(sov) if sov is not None else None) if mtid in [11, 12, 13, 14, 15, 20, 29, 155, 207, 209, 212, 216, 218, 256, 268, 272, 301, 326, 328] else (mtid, None)
-            
-            if key not in mtid_mapping:
-                continue
-                
-            for idx, outcome in enumerate(market.get("OCA", [])):
-                if idx >= len(mtid_mapping[key]):
-                    break
-                odds = outcome.get("O")
-                if odds is None:
-                    continue
-                match_info[mtid_mapping[key][idx]] = float(odds)
-                filled_columns.append(mtid_mapping[key][idx])
-        
-        match_info["Oran Sayısı"] = f"{len(filled_columns)}/{len(excel_columns)}"
-        api_matches.append(match_info)
-    
-    api_df = pd.DataFrame(api_matches)
-    if api_df.empty:
-        st.error("Seçilen aralıkta maç bulunamadı!")
-        st.stop()
-    
-    return api_df.sort_values(by="match_datetime").drop(columns=["match_datetime"])
-
-# Varsayımsal find_similar_matches (basit bir placeholder, gerçek fonksiyonu paylaşman gerek)
+# Varsayımsal find_similar_matches (v17_lig.py'den uyarlandı, tam içerik truncated, bu yüzden placeholder)
 def find_similar_matches(api_df, data, mtid_mapping, league_mapping):
-    output_rows = []
-    for idx, row in api_df.iterrows():
-        match_info = {
-            "Benzerlik (%)": "",
-            "İY/MS": row["İY/MS"],
-            "Oran Sayısı": row["Oran Sayısı"],
-            "Saat": row["Saat"],
-            "Tarih": row["Tarih"],
-            "Lig Adı": row["Lig Adı"],
-            "Ev Sahibi Takım": row["Ev Sahibi Takım"],
-            "Deplasman Takım": row["Deplasman Takım"],
-            "IY KG ORAN": "",
-            "IY SKOR": "",
-            "MS SKOR": ""
-        }
-        output_rows.append(match_info)
-        output_rows.append({})  # Boş satır
-    return output_rows
+    # Yerel kodundan Parallel ile process_match çağrısı
+    output_rows = Parallel(n_jobs=-1)(delayed(process_match)(idx, row, data, excel_columns, league_mapping, [], 0, [], datetime.now(), True) for idx, row in api_df.iterrows())
+    return [item for sublist in output_rows for item in sublist]  # Flatten
 
-# Varsayımsal style_dataframe (basit bir placeholder, gerçek fonksiyonu paylaşman gerek)
+# Varsayımsal process_match (benzerlik hesaplaması, truncated kısım)
+def process_match(idx, row, data, excel_columns, league_mapping, threshold_columns, min_columns, league_keys, current_date, include_global_matches):
+    # Yerel kodundan benzerlik hesaplaması mantığı
+    # ... (tam içerik truncated, buraya yerel kodun process_match içeriğini ekle)
+    return [{}]  # Placeholder output row
+
+# Varsayımsal style_dataframe (placeholder, tam içerik paylaş)
 def style_dataframe(df, output_rows):
-    return df
+    return df.style.set_properties(**{'background-color': 'lightyellow'})
+
+# Varsayımsal write_to_excel (Streamlit'te gerek yok, ama yerel kodda var, kaldırdım)
+# def write_to_excel(output_rows, data):
+#     # Yerel kodundan Excel yazma mantığı, Streamlit'te dataframe gösteriyoruz, gerek yok
