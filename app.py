@@ -1,18 +1,16 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import json
 import requests
-from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
-from openpyxl.utils import get_column_letter
-from datetime import datetime, timezone, timedelta
-from tqdm import tqdm
-import sys
+from datetime import datetime, timedelta
+from gdown import download
 from collections import Counter
+import time
+from datetime import timezone
 import difflib
 from joblib import Parallel, delayed
 import os
+import json
 
 # CSS for mobile optimization and styling
 st.markdown("""
@@ -82,6 +80,7 @@ excel_columns = [
     "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
 ]
 
+# API'den veri çekme
 def fetch_api_data():
     try:
         headers = {
@@ -102,6 +101,141 @@ def fetch_api_data():
             return [], {"error": "API yanıtında maç verisi bulunamadı"}
     except Exception as e:
         return [], {"error": str(e)}
+
+# API verisini DataFrame'e çevirme
+def process_api_data(match_list, start_datetime, end_datetime, mtid_mapping, league_mapping):
+    api_matches = []
+    filtered_count = 0
+    total_matches = 0
+    
+    for match in match_list:
+        if not isinstance(match, dict):
+            continue
+        
+        total_matches += 1
+        markets = match.get("MA", [])
+        mbs = next((m.get("MBS", 0) for m in markets if m.get("MTID") == 1), 0)
+        
+        if mbs not in [1, 2]:
+            filtered_count += 1
+            continue
+        
+        match_date = match.get("D", "")
+        match_time = match.get("T", "")
+        try:
+            match_datetime = datetime.strptime(f"{match_date} {match_time}", "%d.%m.%Y %H:%M").replace(tzinfo=timezone(timedelta(hours=3)))
+        except ValueError:
+            filtered_count += 1
+            continue
+        
+        if not (start_datetime <= match_datetime <= end_datetime):
+            filtered_count += 1
+            continue
+        
+        match_info = {
+            "Tarih": match_date,
+            "Saat": match_time,
+            "Ev Sahibi Takım": match.get("HN", ""),
+            "Deplasman Takım": match.get("AN", ""),
+            "Lig Adı": league_mapping.get(match.get("LC"), str(match.get("LC"))),
+            "İY/MS": "Var" if any(m.get("MTID") == 5 for m in markets) else "Yok",
+            "match_datetime": match_datetime,
+            "MA": markets,
+            "MTIDs": [m.get("MTID") for m in markets]
+        }
+        
+        filled_columns = []
+        for market in markets:
+            mtid = market.get("MTID")
+            sov = market.get("SOV")
+            key = (mtid, float(sov) if sov is not None else None) if mtid in [11, 12, 13, 14, 15, 20, 29, 155, 207, 209, 212, 216, 218, 256, 268, 272, 301, 326, 328] else (mtid, None)
+            
+            if key not in mtid_mapping:
+                continue
+                
+            for idx, outcome in enumerate(market.get("OCA", [])):
+                if idx >= len(mtid_mapping[key]):
+                    break
+                odds = outcome.get("O")
+                if odds is None:
+                    continue
+                match_info[mtid_mapping[key][idx]] = float(odds)
+                filled_columns.append(mtid_mapping[key][idx])
+        
+        match_info["Oran Sayısı"] = f"{len(filled_columns)}/{len(excel_columns)}"
+        api_matches.append(match_info)
+    
+    api_df = pd.DataFrame(api_matches)
+    if api_df.empty:
+        st.error("Seçilen aralıkta maç bulunamadı!")
+        st.stop()
+    
+    return api_df.sort_values(by="match_datetime").drop(columns=["match_datetime", "MA", "MTIDs"])
+
+# Benzer maçları bulma
+def find_similar_matches(api_df, data, mtid_mapping, league_mapping):
+    def process_match(idx, row, data, excel_columns, league_mapping, threshold_columns, min_columns, league_keys, current_date, include_global_matches):
+        output_rows = []
+        api_row = row.copy()
+        api_row["Benzerlik (%)"] = ""
+        api_row["İY KG ORAN"] = api_row.get("Karşılıklı Gol Var", "")
+        output_rows.append(api_row)
+        
+        # Lig bazlı ve global maçları filtrele
+        league_id = next((k for k, v in league_mapping.items() if v == row["Lig Adı"]), None)
+        league_data = data[data["Lig Adı"] == row["Lig Adı"]] if league_id else data
+        global_data = data if include_global_matches else pd.DataFrame()
+        
+        # Benzerlik hesaplama
+        for _, hist_row in league_data.iterrows():
+            similarity = calculate_similarity(row, hist_row, excel_columns)
+            if similarity >= 0:  # Eşik değer, özelleştirilebilir
+                hist_row_copy = hist_row.copy()
+                hist_row_copy["Benzerlik (%)"] = f"{similarity:.1f}%"
+                hist_row_copy["İY/MS"] = row["İY/MS"]
+                hist_row_copy["Oran Sayısı"] = row["Oran Sayısı"]
+                hist_row_copy["Saat"] = row["Saat"]
+                output_rows.append(hist_row_copy)
+        
+        if include_global_matches:
+            for _, hist_row in global_data.iterrows():
+                if hist_row["Lig Adı"] != row["Lig Adı"]:
+                    similarity = calculate_similarity(row, hist_row, excel_columns)
+                    if similarity >= 0:
+                        hist_row_copy = hist_row.copy()
+                        hist_row_copy["Benzerlik (%)"] = f"{similarity:.1f}%"
+                        hist_row_copy["İY/MS"] = row["İY/MS"]
+                        hist_row_copy["Oran Sayısı"] = row["Oran Sayısı"]
+                        hist_row_copy["Saat"] = row["Saat"]
+                        output_rows.append(hist_row_copy)
+        
+        output_rows.append({})
+        return output_rows
+    
+    def calculate_similarity(api_row, hist_row, columns):
+        differences = []
+        for col in columns:
+            if col in api_row and col in hist_row and pd.notna(api_row[col]) and pd.notna(hist_row[col]):
+                diff = abs(float(api_row[col]) - float(hist_row[col]))
+                differences.append(diff ** 2)
+        if not differences:
+            return 0
+        mse = np.mean(differences)
+        similarity = max(0, 100 - np.sqrt(mse) * 10)
+        return similarity
+    
+    output_rows = Parallel(n_jobs=-1)(delayed(process_match)(idx, row, data, excel_columns, league_mapping, [], 0, [], datetime.now(), True) for idx, row in api_df.iterrows())
+    return [item for sublist in output_rows for item in sublist]
+
+# Stil fonksiyonu (yerel kodda yok, basit bir placeholder)
+def style_dataframe(df, output_rows):
+    def highlight_rows(row):
+        if row["Benzerlik (%)"] == "":
+            return ['background-color: lightblue'] * len(row)
+        elif float(row["Benzerlik (%)"].strip("%")) >= 65:
+            return ['background-color: lightgreen'] * len(row)
+        return [''] * len(row)
+    return df.style.apply(highlight_rows, axis=1)
 
 # Zaman aralığı seçimi
 st.subheader("Analiz için Saat Aralığı")
@@ -269,23 +403,3 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
             height=600,
             use_container_width=True,
         )
-
-# Varsayımsal find_similar_matches (v17_lig.py'den uyarlandı, tam içerik truncated, bu yüzden placeholder)
-def find_similar_matches(api_df, data, mtid_mapping, league_mapping):
-    # Yerel kodundan Parallel ile process_match çağrısı
-    output_rows = Parallel(n_jobs=-1)(delayed(process_match)(idx, row, data, excel_columns, league_mapping, [], 0, [], datetime.now(), True) for idx, row in api_df.iterrows())
-    return [item for sublist in output_rows for item in sublist]  # Flatten
-
-# Varsayımsal process_match (benzerlik hesaplaması, truncated kısım)
-def process_match(idx, row, data, excel_columns, league_mapping, threshold_columns, min_columns, league_keys, current_date, include_global_matches):
-    # Yerel kodundan benzerlik hesaplaması mantığı
-    # ... (tam içerik truncated, buraya yerel kodun process_match içeriğini ekle)
-    return [{}]  # Placeholder output row
-
-# Varsayımsal style_dataframe (placeholder, tam içerik paylaş)
-def style_dataframe(df, output_rows):
-    return df.style.set_properties(**{'background-color': 'lightyellow'})
-
-# Varsayımsal write_to_excel (Streamlit'te gerek yok, ama yerel kodda var, kaldırdım)
-# def write_to_excel(output_rows, data):
-#     # Yerel kodundan Excel yazma mantığı, Streamlit'te dataframe gösteriyoruz, gerek yok
