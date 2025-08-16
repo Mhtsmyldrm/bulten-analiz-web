@@ -100,6 +100,7 @@ def fetch_api_data():
         else:
             return [], {"error": "API yanıtında maç verisi bulunamadı"}
     except Exception as e:
+        st.error(f"API hatası: {str(e)}")
         return [], {"error": str(e)}
 
 # API verisini DataFrame'e çevirme
@@ -108,8 +109,10 @@ def process_api_data(match_list, start_datetime, end_datetime, mtid_mapping, lea
     filtered_count = 0
     total_matches = 0
     
+    st.write(f"Toplam API maçı: {len(match_list)}")
     for match in match_list:
         if not isinstance(match, dict):
+            st.write(f"Geçersiz maç verisi: {type(match)}")
             continue
         
         total_matches += 1
@@ -125,6 +128,7 @@ def process_api_data(match_list, start_datetime, end_datetime, mtid_mapping, lea
         try:
             match_datetime = datetime.strptime(f"{match_date} {match_time}", "%d.%m.%Y %H:%M").replace(tzinfo=timezone(timedelta(hours=3)))
         except ValueError:
+            st.write(f"Geçersiz tarih-saat: {match_date} {match_time}")
             filtered_count += 1
             continue
         
@@ -165,6 +169,7 @@ def process_api_data(match_list, start_datetime, end_datetime, mtid_mapping, lea
         match_info["Oran Sayısı"] = f"{len(filled_columns)}/{len(excel_columns)}"
         api_matches.append(match_info)
     
+    st.write(f"Filtrelenen maçlar: {filtered_count}, İşlenen maçlar: {len(api_matches)}")
     api_df = pd.DataFrame(api_matches)
     if api_df.empty:
         st.error("Seçilen aralıkta maç bulunamadı!")
@@ -216,18 +221,23 @@ def find_similar_matches(api_df, data, mtid_mapping, league_mapping):
         differences = []
         for col in columns:
             if col in api_row and col in hist_row and pd.notna(api_row[col]) and pd.notna(hist_row[col]):
-                diff = abs(float(api_row[col]) - float(hist_row[col]))
-                differences.append(diff ** 2)
+                try:
+                    diff = abs(float(api_row[col]) - float(hist_row[col]))
+                    differences.append(diff ** 2)
+                except (ValueError, TypeError):
+                    continue
         if not differences:
             return 0
         mse = np.mean(differences)
         similarity = max(0, 100 - np.sqrt(mse) * 10)
         return similarity
     
-    output_rows = Parallel(n_jobs=-1)(delayed(process_match)(idx, row, data, excel_columns, league_mapping, [], 0, [], datetime.now(), True) for idx, row in api_df.iterrows())
+    st.write("Benzerlik hesaplanıyor...")
+    output_rows = Parallel(n_jobs=2)(delayed(process_match)(idx, row, data, excel_columns, league_mapping, [], 0, [], datetime.now(), True) for idx, row in api_df.iterrows())
+    st.write("Benzerlik hesaplama tamamlandı")
     return [item for sublist in output_rows for item in sublist]
 
-# Stil fonksiyonu (yerel kodda yok, basit bir placeholder)
+# Stil fonksiyonu
 def style_dataframe(df, output_rows):
     def highlight_rows(row):
         if row["Benzerlik (%)"] == "":
@@ -263,38 +273,54 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             
             status_placeholder.write("JSON mapping'ler Drive'dan indiriliyor...")
             # MTID mapping JSON indirme
-            download("https://drive.google.com/uc?id=1N1PjFla683BYTAdzVDaajmcnmMB5wiiO", "mtid_mapping.json", quiet=False)
-            with open("mtid_mapping.json", "r", encoding="utf-8") as f:
-                mtid_data = json.load(f)
-                mtid_mapping = {}
-                for key_str, value in mtid_data.items():
-                    if key_str.startswith("(") and key_str.endswith(")"):
-                        parts = key_str[1:-1].split(", ")
-                        if len(parts) == 2:
-                            mtid = int(parts[0])
-                            sov = None if parts[1] == "null" else float(parts[1])
-                            mtid_mapping[(mtid, sov)] = value
-                    else:
-                        mtid_mapping[key_str] = value
-            status_placeholder.write(f"Yüklenen MTID eşleşmeleri: {len(mtid_mapping)} adet")
+            try:
+                download("https://drive.google.com/uc?id=1N1PjFla683BYTAdzVDaajmcnmMB5wiiO", "mtid_mapping.json", quiet=False)
+                with open("mtid_mapping.json", "r", encoding="utf-8") as f:
+                    mtid_data = json.load(f)
+                    mtid_mapping = {}
+                    for key_str, value in mtid_data.items():
+                        if key_str.startswith("(") and key_str.endswith(")"):
+                            parts = key_str[1:-1].split(", ")
+                            if len(parts) == 2:
+                                mtid = int(parts[0])
+                                sov = None if parts[1] == "null" else float(parts[1])
+                                mtid_mapping[(mtid, sov)] = value
+                        else:
+                            mtid_mapping[key_str] = value
+                status_placeholder.write(f"Yüklenen MTID eşleşmeleri: {len(mtid_mapping)} adet")
+            except Exception as e:
+                st.error(f"MTID mapping indirme hatası: {str(e)}")
+                st.stop()
             
             # League mapping JSON indirme
-            download("https://drive.google.com/uc?id=1L8HA_emD92BJSuCn-P9GJF-hH55nIKE7", "league_mapping.json", quiet=False)
-            with open("league_mapping.json", "r", encoding="utf-8") as f:
-                league_mapping = json.load(f)
-                league_mapping = {int(k): v for k, v in league_mapping.items()}
-            status_placeholder.write(f"Yüklenen lig eşleşmeleri: {len(league_mapping)} adet")
+            try:
+                download("https://drive.google.com/uc?id=1L8HA_emD92BJSuCn-P9GJF-hH55nIKE7", "league_mapping.json", quiet=False)
+                with open("league_mapping.json", "r", encoding="utf-8") as f:
+                    league_mapping = json.load(f)
+                    league_mapping = {int(k): v for k, v in league_mapping.items()}
+                status_placeholder.write(f"Yüklenen lig eşleşmeleri: {len(league_mapping)} adet")
+            except Exception as e:
+                st.error(f"League mapping indirme hatası: {str(e)}")
+                st.stop()
             
             status_placeholder.write("Geçmiş maç verileri indiriliyor...")
             # Parquet indirme
-            download("https://drive.google.com/uc?id=1GyrtGqC3SgcXun9X6oVoEQ0_JskLMF68", "matches.parquet", quiet=False)
+            try:
+                download("https://drive.google.com/uc?id=1GyrtGqC3SgcXun9X6oVoEQ0_JskLMF68", "matches.parquet", quiet=False)
+            except Exception as e:
+                st.error(f"Parquet indirme hatası: {str(e)}")
+                st.stop()
             
             status_placeholder.write("Bahisler kontrol ediliyor...")
             time.sleep(0.1)
             excel_columns_basic = [
                 "Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"
             ] + excel_columns
-            data = pd.read_parquet("matches.parquet", engine="pyarrow", columns=excel_columns_basic)
+            try:
+                data = pd.read_parquet("matches.parquet", engine="pyarrow", columns=excel_columns_basic)
+            except Exception as e:
+                st.error(f"Parquet okuma hatası: {str(e)}")
+                st.stop()
             
             data_columns_lower = [col.lower().strip() for col in data.columns]
             excel_columns_lower = [col.lower().strip() for col in excel_columns_basic]
@@ -319,8 +345,11 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             
             for col in excel_columns:
                 if col in data.columns:
-                    data[col] = pd.to_numeric(data[col], errors='coerce')
-                    data.loc[:, col] = data[col].where(data[col] > 1.0, np.nan)
+                    try:
+                        data[col] = pd.to_numeric(data[col], errors='coerce')
+                        data.loc[:, col] = data[col].where(data[col] > 1.0, np.nan)
+                    except Exception as e:
+                        st.warning(f"Sütun {col} temizlenirken hata: {str(e)}")
             st.session_state.data = data
             
             status_placeholder.write("Bülten verisi çekiliyor...")
