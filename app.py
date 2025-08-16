@@ -73,16 +73,16 @@ excel_columns = [
 
 # MTID eşleşmeleri
 mtid_mapping = {
-    (1, null): ["Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2"],
-    (3, null): ["Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2"],
-    (5, null): [
+    (1, None): ["Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2"],
+    (3, None): ["Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2"],
+    (5, None): [
         "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
         "İlk Yarı/Maç Sonucu X/1", "İlk Yarı/Maç Sonucu X/X", "İlk Yarı/Maç Sonucu X/2",
         "İlk Yarı/Maç Sonucu 2/1", "İlk Yarı/Maç Sonucu 2/X", "İlk Yarı/Maç Sonucu 2/2"
     ],
-    (7, null): ["1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2"],
-    (8, null): ["1. Yarı Çifte Şans 1-X", "1. Yarı Çifte Şans 1-2", "1. Yarı Çifte Şans X-2"],
-    (9, null): ["2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2"],
+    (7, None): ["1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2"],
+    (8, None): ["1. Yarı Çifte Şans 1-X", "1. Yarı Çifte Şans 1-2", "1. Yarı Çifte Şans X-2"],
+    (9, None): ["2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2"],
     (11, 1.5): ["1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst"],
     (12, 2.5): ["2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst"],
     (13, 3.5): ["3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst"],
@@ -91,13 +91,13 @@ mtid_mapping = {
     (15, 3.5): ["1. Yarı Alt/Üst (3,5) Alt", "1. Yarı Alt/Üst (3,5) Üst"],
     (20, 1.5): ["Evsahibi 1,5 Alt/Üst Alt", "Evsahibi 1,5 Alt/Üst Üst"],
     (29, 1.5): ["Deplasman 1,5 Alt/Üst Alt", "Deplasman 1,5 Alt/Üst Üst"],
-    (38, null): ["Karşılıklı Gol Var", "Karşılıklı Gol Yok"],
-    (43, null): ["Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol", "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol"],
-    (48, null): ["Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y"],
-    (49, null): ["Tek/Çift Tek", "Tek/Çift Çift"],
+    (38, None): ["Karşılıklı Gol Var", "Karşılıklı Gol Yok"],
+    (43, None): ["Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol", "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol"],
+    (48, None): ["Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y"],
+    (49, None): ["Tek/Çift Tek", "Tek/Çift Çift"],
     (155, 4.5): ["4,5 Alt/Üst Alt", "4,5 Alt/Üst Üst"],
     (155, 5.5): ["5,5 Alt/Üst Alt", "5,5 Alt/Üst Üst"],
-    (205, null): [
+    (205, None): [
         "Maç Skoru 1-0", "Maç Skoru 2-0", "Maç Skoru 2-1", "Maç Skoru 3-0", "Maç Skoru 3-1", "Maç Skoru 3-2",
         "Maç Skoru 4-0", "Maç Skoru 4-1", "Maç Skoru 4-2", "Maç Skoru 5-0", "Maç Skoru 5-1", "Maç Skoru 6-0",
         "Maç Skoru 0-0", "Maç Skoru 1-1", "Maç Skoru 2-2", "Maç Skoru 3-3", "Maç Skoru 0-1", "Maç Skoru 0-2",
@@ -117,10 +117,10 @@ mtid_mapping = {
     (218, 3.5): ["1.Yarı (3,5) Korner Alt/Üst Alt", "1.Yarı (3,5) Korner Alt/Üst Üst"],
     (218, 4.5): ["1.Yarı (4,5) Korner Alt/Üst Alt", "1.Yarı (4,5) Korner Alt/Üst Üst"],
     (218, 5.5): ["1.Yarı (5,5) Korner Alt/Üst Alt", "1.Yarı (5,5) Korner Alt/Üst Üst"],
-    (220, null): ["En Çok Korner 1", "En Çok Korner X", "En Çok Korner 2"],
-    (222, null): ["1. Yarı En Çok Korner 1", "1. Yarı En Çok Korner X", "1. Yarı En Çok Korner 2"],
-    (224, null): ["İlk Korner 1", "İlk Korner Olmaz", "İlk Korner 2"],
-    (225, null): ["Kırmızı Kart Var", "Kırmızı Kart Yok"],
+    (220, None): ["En Çok Korner 1", "En Çok Korner X", "En Çok Korner 2"],
+    (222, None): ["1. Yarı En Çok Korner 1", "1. Yarı En Çok Korner X", "1. Yarı En Çok Korner 2"],
+    (224, None): ["İlk Korner 1", "İlk Korner Olmaz", "İlk Korner 2"],
+    (225, None): ["Kırmızı Kart Var", "Kırmızı Kart Yok"],
     (256, 0.5): ["Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst"],
     (268, -5.0): ["Handikaplı Maç Sonucu (-5,0) 1", "Handikaplı Maç Sonucu (-5,0) X", "Handikaplı Maç Sonucu (-5,0) 2"],
     (268, -4.0): ["Handikaplı Maç Sonucu (-4,0) 1", "Handikaplı Maç Sonucu (-4,0) X", "Handikaplı Maç Sonucu (-4,0) 2"],
@@ -139,25 +139,25 @@ mtid_mapping = {
         "Maç Sonucu ve (4,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (4,5) Alt/Üst X ve Alt", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Alt",
         "Maç Sonucu ve (4,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (4,5) Alt/Üst X ve Üst", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Üst"
     ],
-    (291, null): ["İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2"],
-    (299, null): ["Korner Tek/Çift Tek", "Korner Tek/Çift Çift"],
+    (291, None): ["İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2"],
+    (299, None): ["Korner Tek/Çift Tek", "Korner Tek/Çift Çift"],
     (301, 2.5): ["(2,5) Kart Alt/Üst Alt", "(2,5) Kart Alt/Üst Üst"],
     (301, 3.5): ["(3,5) Kart Alt/Üst Alt", "(3,5) Kart Alt/Üst Üst"],
     (301, 4.5): ["(3,5) Kart Alt/Üst Alt", "(4,5) Kart Alt/Üst Üst"],
     (301, 5.5): ["(4,5) Kart Alt/Üst Alt", "(5,5) Kart Alt/Üst Üst"],
     (326, 2.5): ["Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst"],
     (328, 2.5): ["Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst"],
-    (338, null): ["Toplam Korner Aralığı 0-8", "Toplam Korner Aralığı 9-11", "Toplam Korner Aralığı 12+"],
-    (340, null): ["1. Yarı Korner Aralığı 0-4", "1. Yarı Korner Aralığı 5-6", "1. Yarı Korner Aralığı 7+"],
-    (342, null): [
+    (338, None): ["Toplam Korner Aralığı 0-8", "Toplam Korner Aralığı 9-11", "Toplam Korner Aralığı 12+"],
+    (340, None): ["1. Yarı Korner Aralığı 0-4", "1. Yarı Korner Aralığı 5-6", "1. Yarı Korner Aralığı 7+"],
+    (342, None): [
         "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
         "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst"
     ],
-    (343, null): [
+    (343, None): [
         "Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
         "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (2,5) Alt/Üst X ve Üst", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst"
     ],
-    (461, null): ["Maç Sonucu (Uzt. Dahil) 1", "Maç Sonucu (Uzt. Dahil) 2"]
+    (461, None): ["Maç Sonucu (Uzt. Dahil) 1", "Maç Sonucu (Uzt. Dahil) 2"]
 }
 
 # Lig kodları eşleştirmesi
