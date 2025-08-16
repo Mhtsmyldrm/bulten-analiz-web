@@ -73,6 +73,28 @@ excel_columns = [
     "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
 ]
 
+# API'den veri çekme (v17_lig.py'den uyarlandı)
+def fetch_api_data():
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://www.nesine.com/",
+            "Accept-Language": "tr-TR,tr;q=0.9",
+            "Connection": "keep-alive",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        url = "https://bulten.nesine.com/api/bulten/getprebultendelta?eventVersion=462376563&marketVersion=462376563&oddVersion=1712799325&_=1743545516827"
+        response = requests.get(url, timeout=30, headers=headers)
+        response.raise_for_status()
+        match_data = response.json()
+        if isinstance(match_data, dict) and "sg" in match_data and "EA" in match_data["sg"]:
+            return match_data["sg"]["EA"], match_data
+        else:
+            return [], {"error": "API yanıtında maç verisi bulunamadı"}
+    except Exception as e:
+        return [], {"error": str(e)}
+
 # Zaman aralığı seçimi
 st.subheader("Analiz için Saat Aralığı")
 default_start = datetime.now(timezone(timedelta(hours=3))) + timedelta(minutes=5)
@@ -162,18 +184,18 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             
             status_placeholder.write("Bülten verisi çekiliyor...")
             time.sleep(0.1)
-            match_list, raw_data = fetch_api_data()  # Varsayalım aynı
+            match_list, raw_data = fetch_api_data()
             if not match_list:
                 st.error(f"Bülten verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
                 st.stop()
             
-            api_df = process_api_data(match_list, raw_data, start_datetime, end_datetime, mtid_mapping, league_mapping)  # Mapping'leri geçir
+            api_df = process_api_data(match_list, raw_data, start_datetime, end_datetime, mtid_mapping, league_mapping)
             
             # Debug logları
             st.write(f"Bültenden çekilen maç sayısı: {len(match_list)}")
             st.write(f"İşlenen maçlar: {len(api_df)}")
             if not api_df.empty:
-                output_rows = find_similar_matches(api_df, data, mtid_mapping, league_mapping)  # Mapping'leri geçir
+                output_rows = find_similar_matches(api_df, data, mtid_mapping, league_mapping)
             if not output_rows:
                 st.error("Eşleşme bulunamadı. Lütfen verileri kontrol edin.")
                 st.stop()
@@ -209,7 +231,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 else:
                     main_rows.extend(current_group)
             
-            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Saat", "Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY KG ORAN", "IY SKOR", "MS SKOR"]  # Korner Ort. kaldırıldı
+            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Saat", "Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY KG ORAN", "IY SKOR", "MS SKOR"]
             iyms_df = pd.DataFrame([r for r in iyms_rows if r], columns=columns)
             main_df = pd.DataFrame([r for r in main_rows if r], columns=columns)
             
@@ -240,3 +262,98 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
             height=600,
             use_container_width=True,
         )
+
+# Varsayımsal process_api_data (v17_lig.py'den uyarlandı)
+def process_api_data(match_list, raw_data, start_datetime, end_datetime, mtid_mapping, league_mapping):
+    api_matches = []
+    filtered_count = 0
+    total_matches = 0
+    
+    for match in match_list:
+        if not isinstance(match, dict):
+            continue
+        
+        total_matches += 1
+        markets = match.get("MA", [])
+        mbs = next((m.get("MBS", 0) for m in markets if m.get("MTID") == 1), 0)
+        
+        if mbs not in [1, 2]:
+            filtered_count += 1
+            continue
+        
+        match_date = match.get("D", "")
+        match_time = match.get("T", "")
+        try:
+            match_datetime = datetime.strptime(f"{match_date} {match_time}", "%d.%m.%Y %H:%M").replace(tzinfo=timezone(timedelta(hours=3)))
+        except ValueError:
+            filtered_count += 1
+            continue
+        
+        if not (start_datetime <= match_datetime <= end_datetime):
+            filtered_count += 1
+            continue
+        
+        match_info = {
+            "Tarih": match_date,
+            "Saat": match_time,
+            "Ev Sahibi Takım": match.get("HN", ""),
+            "Deplasman Takım": match.get("AN", ""),
+            "Lig Adı": league_mapping.get(match.get("LC"), str(match.get("LC"))),
+            "İY/MS": "Var" if any(m.get("MTID") == 5 for m in markets) else "Yok",
+            "match_datetime": match_datetime,
+            "MA": markets,
+            "MTIDs": [m.get("MTID") for m in markets]
+        }
+        
+        filled_columns = []
+        for market in markets:
+            mtid = market.get("MTID")
+            sov = market.get("SOV")
+            key = (mtid, float(sov) if sov is not None else None) if mtid in [11, 12, 13, 14, 15, 20, 29, 155, 207, 209, 212, 216, 218, 256, 268, 272, 301, 326, 328] else (mtid, None)
+            
+            if key not in mtid_mapping:
+                continue
+                
+            for idx, outcome in enumerate(market.get("OCA", [])):
+                if idx >= len(mtid_mapping[key]):
+                    break
+                odds = outcome.get("O")
+                if odds is None:
+                    continue
+                match_info[mtid_mapping[key][idx]] = float(odds)
+                filled_columns.append(mtid_mapping[key][idx])
+        
+        match_info["Oran Sayısı"] = f"{len(filled_columns)}/{len(excel_columns)}"
+        api_matches.append(match_info)
+    
+    api_df = pd.DataFrame(api_matches)
+    if api_df.empty:
+        st.error("Seçilen aralıkta maç bulunamadı!")
+        st.stop()
+    
+    return api_df.sort_values(by="match_datetime").drop(columns=["match_datetime"])
+
+# Varsayımsal find_similar_matches (basit bir placeholder, gerçek fonksiyonu paylaşman gerek)
+def find_similar_matches(api_df, data, mtid_mapping, league_mapping):
+    output_rows = []
+    for idx, row in api_df.iterrows():
+        match_info = {
+            "Benzerlik (%)": "",
+            "İY/MS": row["İY/MS"],
+            "Oran Sayısı": row["Oran Sayısı"],
+            "Saat": row["Saat"],
+            "Tarih": row["Tarih"],
+            "Lig Adı": row["Lig Adı"],
+            "Ev Sahibi Takım": row["Ev Sahibi Takım"],
+            "Deplasman Takım": row["Deplasman Takım"],
+            "IY KG ORAN": "",
+            "IY SKOR": "",
+            "MS SKOR": ""
+        }
+        output_rows.append(match_info)
+        output_rows.append({})  # Boş satır
+    return output_rows
+
+# Varsayımsal style_dataframe (basit bir placeholder, gerçek fonksiyonu paylaşman gerek)
+def style_dataframe(df, output_rows):
+    return df
