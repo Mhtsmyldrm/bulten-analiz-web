@@ -1,3 +1,4 @@
+import json  # İlk sıraya taşıdım, çakışma riskini azaltmak için
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,7 +9,6 @@ from collections import Counter
 import time
 from datetime import timezone
 import difflib
-import json
 
 # CSS for mobile optimization and styling
 st.markdown("""
