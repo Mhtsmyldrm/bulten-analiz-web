@@ -45,6 +45,39 @@ excel_columns = [
     "2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2",
 ]
 
+# JSON dosyalarını yükleme (Drive’dan)
+def load_json_mappings():
+    try:
+        download("https://drive.google.com/uc?id=1N1PjFla683BYTAdzVDaajmcnmMB5wiiO", "mtid_mapping.json", quiet=False)
+        with open("mtid_mapping.json", "r", encoding="utf-8") as f:
+            mtid_data = json.load(f)
+            mtid_mapping = {}
+            for key_str, value in mtid_data.items():
+                if key_str.startswith("(") and key_str.endswith(")"):
+                    parts = key_str[1:-1].split(", ")
+                    if len(parts) == 2:
+                        mtid = int(parts[0])
+                        sov = None if parts[1] == "null" else float(parts[1])
+                        mtid_mapping[(mtid, sov)] = value
+        st.write(f"Yüklenen MTID eşleşmeleri: {len(mtid_mapping)} adet")
+    except Exception as e:
+        st.error(f"mtid_mapping.json yüklenirken hata: {str(e)}")
+        st.stop()
+        mtid_mapping = {}
+
+    try:
+        download("https://drive.google.com/uc?id=1L8HA_emD92BJSuCn-P9GJF-hH55nIKE7", "league_mapping.json", quiet=False)
+        with open("league_mapping.json", "r", encoding="utf-8") as f:
+            league_data = json.load(f)
+            league_mapping = {int(k): v for k, v in league_data.items()}
+        st.write(f"Yüklenen lig eşleşmeleri: {len(league_mapping)} adet")
+    except Exception as e:
+        st.error(f"league_mapping.json yüklenirken hata: {str(e)}")
+        st.stop()
+        league_mapping = {}
+
+    return mtid_mapping, league_mapping
+
 # API'den veri çekme
 def fetch_api_data():
     try:
@@ -273,43 +306,15 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 st.stop()
             
             status_placeholder.write("JSON mapping'ler Drive'dan indiriliyor...")
-            # MTID mapping JSON indirme
-            try:
-                download("https://drive.google.com/uc?id=1N1PjFla683BYTAdzVDaajmcnmMB5wiiO", "mtid_mapping.json", quiet=False)
-                with open("mtid_mapping.json", "r", encoding="utf-8") as f:
-                    mtid_data = json.load(f)
-                    mtid_mapping = {}
-                    for key_str, value in mtid_data.items():
-                        if key_str.startswith("(") and key_str.endswith(")"):
-                            parts = key_str[1:-1].split(", ")
-                            if len(parts) == 2:
-                                mtid = int(parts[0])
-                                sov = None if parts[1] == "null" else float(parts[1])
-                                mtid_mapping[(mtid, sov)] = value
-                        else:
-                            mtid_mapping[key_str] = value
-                status_placeholder.write(f"Yüklenen MTID eşleşmeleri: {len(mtid_mapping)} adet")
-            except Exception as e:
-                st.error(f"MTID mapping indirme hatası: {str(e)}")
-                st.stop()
-            
-            # League mapping JSON indirme
-            try:
-                download("https://drive.google.com/uc?id=1L8HA_emD92BJSuCn-P9GJF-hH55nIKE7", "league_mapping.json", quiet=False)
-                with open("league_mapping.json", "r", encoding="utf-8") as f:
-                    league_mapping = json.load(f)
-                    league_mapping = {int(k): v for k, v in league_mapping.items()}
-                status_placeholder.write(f"Yüklenen lig eşleşmeleri: {len(league_mapping)} adet")
-            except Exception as e:
-                st.error(f"League mapping indirme hatası: {str(e)}")
-                st.stop()
+            # JSON dosyalarını yükle
+            mtid_mapping, league_mapping = load_json_mappings()
             
             status_placeholder.write("Geçmiş maç verileri indiriliyor...")
-            # Parquet indirme
+            # Excel indirme
             try:
-                download("https://drive.google.com/uc?id=1GyrtGqC3SgcXun9X6oVoEQ0_JskLMF68", "matches.parquet", quiet=False)
+                download("https://drive.google.com/uc?id=11m7tX2xCavCM_cij69UaSVijFuFQbveM", "matches.xlsx", quiet=False)
             except Exception as e:
-                st.error(f"Parquet indirme hatası: {str(e)}")
+                st.error(f"Excel indirme hatası: {str(e)}")
                 st.stop()
             
             status_placeholder.write("Bahisler kontrol ediliyor...")
@@ -318,9 +323,9 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 "Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR"
             ] + excel_columns
             try:
-                data = pd.read_parquet("matches.parquet", engine="pyarrow", columns=excel_columns_basic)
+                data = pd.read_excel("matches.xlsx", engine="openpyxl")
             except Exception as e:
-                st.error(f"Parquet okuma hatası: {str(e)}")
+                st.error(f"Excel okuma hatası: {str(e)}")
                 st.stop()
             
             data_columns_lower = [col.lower().strip() for col in data.columns]
@@ -333,7 +338,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 st.warning(f"Eksik sütunlar: {', '.join(missing_columns)}. Mevcut sütunlarla devam ediliyor.")
             
             if "Tarih" not in data.columns:
-                st.error("Hata: 'Tarih' sütunu bulunamadı. Lütfen matches.parquet dosyasını kontrol edin.")
+                st.error("Hata: 'Tarih' sütunu bulunamadı. Lütfen matches.xlsx dosyasını kontrol edin.")
                 st.stop()
             
             if "Tarih" in data.columns:
