@@ -8,8 +8,6 @@ from collections import Counter
 import time
 from datetime import timezone
 import difflib
-from joblib import Parallel, delayed
-import os
 import json
 
 # CSS for mobile optimization and styling
@@ -35,49 +33,16 @@ if "analysis_done" not in st.session_state:
 # Placeholder for status messages
 status_placeholder = st.empty()
 
-# Oran sütunları
+# Sadeleştirilmiş oran sütunları
 excel_columns = [
     "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
     "Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2",
-    "0,5 Alt/Üst Alt", "0,5 Alt/Üst Üst",
-    "1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst",
     "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst",
     "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
-    "4,5 Alt/Üst Alt", "4,5 Alt/Üst Üst",
     "Karşılıklı Gol Var", "Karşılıklı Gol Yok",
-    "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
-    "İlk Yarı/Maç Sonucu X/1", "İlk Yarı/Maç Sonucu X/X", "İlk Yarı/Maç Sonucu X/2",
-    "İlk Yarı/Maç Sonucu 2/1", "İlk Yarı/Maç Sonucu 2/X", "İlk Yarı/Maç Sonucu 2/2",
-    "Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol", "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol",
+    "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu X/X", "İlk Yarı/Maç Sonucu 2/2",
     "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
-    "1. Yarı Çifte Şans 1-X", "1. Yarı Çifte Şans 1-2", "1. Yarı Çifte Şans X-2",
     "2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2",
-    "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
-    "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst",
-    "Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
-    "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (2,5) Alt/Üst X ve Üst", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst",
-    "Maç Sonucu ve (3,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (3,5) Alt/Üst X ve Alt", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Alt",
-    "Maç Sonucu ve (3,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (3,5) Alt/Üst X ve Üst", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Üst",
-    "Maç Sonucu ve (4,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (4,5) Alt/Üst X ve Alt", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Alt",
-    "Maç Sonucu ve (4,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (4,5) Alt/Üst X ve Üst", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Üst",
-    "1. Yarı 0,5 Alt/Üst Alt", "1. Yarı 0,5 Alt/Üst Üst",
-    "1. Yarı 1,5 Alt/Üst Alt", "1. Yarı 1,5 Alt/Üst Üst",
-    "1. Yarı 2,5 Alt/Üst Alt", "1. Yarı 2,5 Alt/Üst Üst",
-    "Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst",
-    "Evsahibi 1,5 Alt/Üst Alt", "Evsahibi 1,5 Alt/Üst Üst",
-    "Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst",
-    "Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst",
-    "Deplasman 1,5 Alt/Üst Alt", "Deplasman 1,5 Alt/Üst Üst",
-    "Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst",
-    "İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2",
-    "Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y",
-    "Maç Skoru 1-0", "Maç Skoru 2-0", "Maç Skoru 2-1", "Maç Skoru 3-0", "Maç Skoru 3-1", "Maç Skoru 3-2",
-    "Maç Skoru 4-0", "Maç Skoru 4-1", "Maç Skoru 4-2", "Maç Skoru 5-0", "Maç Skoru 5-1", "Maç Skoru 6-0",
-    "Maç Skoru 0-0", "Maç Skoru 1-1", "Maç Skoru 2-2", "Maç Skoru 3-3", "Maç Skoru 0-1", "Maç Skoru 0-2",
-    "Maç Skoru 1-2", "Maç Skoru 0-3", "Maç Skoru 1-3", "Maç Skoru 2-3", "Maç Skoru 0-4", "Maç Skoru 1-4",
-    "Maç Skoru 2-4", "Maç Skoru 0-5", "Maç Skoru 1-5", "Maç Skoru 0-6", "Maç Skoru Diğer",
-    "Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2",
-    "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
 ]
 
 # API'den veri çekme
@@ -177,7 +142,7 @@ def process_api_data(match_list, start_datetime, end_datetime, mtid_mapping, lea
     
     return api_df.sort_values(by="match_datetime").drop(columns=["match_datetime", "MA", "MTIDs"])
 
-# Benzer maçları bulma
+# Benzer maçları bulma (v17_lig.py'den uyarlandı)
 def find_similar_matches(api_df, data, mtid_mapping, league_mapping):
     def process_match(idx, row, data, excel_columns, league_mapping, threshold_columns, min_columns, league_keys, current_date, include_global_matches):
         output_rows = []
@@ -194,7 +159,7 @@ def find_similar_matches(api_df, data, mtid_mapping, league_mapping):
         # Benzerlik hesaplama
         for _, hist_row in league_data.iterrows():
             similarity = calculate_similarity(row, hist_row, excel_columns)
-            if similarity >= 0:  # Eşik değer, özelleştirilebilir
+            if similarity >= 0:  # Eşik değer
                 hist_row_copy = hist_row.copy()
                 hist_row_copy["Benzerlik (%)"] = f"{similarity:.1f}%"
                 hist_row_copy["İY/MS"] = row["İY/MS"]
@@ -219,11 +184,18 @@ def find_similar_matches(api_df, data, mtid_mapping, league_mapping):
     
     def calculate_similarity(api_row, hist_row, columns):
         differences = []
+        weights = {
+            "Maç Sonucu 1": 2.0, "Maç Sonucu X": 2.0, "Maç Sonucu 2": 2.0,
+            "2,5 Alt/Üst Alt": 1.5, "2,5 Alt/Üst Üst": 1.5,
+            "Karşılıklı Gol Var": 1.5, "Karşılıklı Gol Yok": 1.5,
+            # Diğer sütunlar için varsayılan ağırlık
+        }
         for col in columns:
             if col in api_row and col in hist_row and pd.notna(api_row[col]) and pd.notna(hist_row[col]):
                 try:
                     diff = abs(float(api_row[col]) - float(hist_row[col]))
-                    differences.append(diff ** 2)
+                    weight = weights.get(col, 1.0)
+                    differences.append(weight * (diff ** 2))
                 except (ValueError, TypeError):
                     continue
         if not differences:
@@ -233,18 +205,47 @@ def find_similar_matches(api_df, data, mtid_mapping, league_mapping):
         return similarity
     
     st.write("Benzerlik hesaplanıyor...")
-    output_rows = Parallel(n_jobs=2)(delayed(process_match)(idx, row, data, excel_columns, league_mapping, [], 0, [], datetime.now(), True) for idx, row in api_df.iterrows())
+    output_rows = []
+    for idx, row in api_df.iterrows():
+        output_rows.extend(process_match(idx, row, data, excel_columns, league_mapping, [], 0, [], datetime.now(), True))
     st.write("Benzerlik hesaplama tamamlandı")
-    return [item for sublist in output_rows for item in sublist]
+    return output_rows
 
-# Stil fonksiyonu
+# Tahmin hesaplama (v17_lig.py'den uyarlandı)
+def calculate_predictions(matches, api_row):
+    if not matches:
+        return []
+    
+    predictions = []
+    score_counts = Counter()
+    for match in matches:
+        if pd.notna(match.get("MS SKOR")):
+            score_counts[match["MS SKOR"]] += 1
+    
+    total_matches = sum(score_counts.values())
+    if total_matches == 0:
+        return []
+    
+    for score, count in score_counts.most_common():
+        percentage = (count / total_matches) * 100
+        if percentage >= 65:  # v17_lig.py'deki eşik
+            odds = api_row.get(score, "")
+            pred_str = f"Maç Skoru {score}: {percentage:.1f}%"
+            if pd.notna(odds):
+                pred_str += f" Oran ({odds})"
+            predictions.append(pred_str)
+    
+    return predictions
+
+# Stil fonksiyonu (v17_lig.py'deki apply_score_fill'den uyarlandı)
 def style_dataframe(df, output_rows):
     def highlight_rows(row):
         if row["Benzerlik (%)"] == "":
             return ['background-color: lightblue'] * len(row)
-        elif float(row["Benzerlik (%)"].strip("%")) >= 65:
-            return ['background-color: lightgreen'] * len(row)
-        return [''] * len(row)
+        similarity = float(row["Benzerlik (%)"].strip("%")) if row["Benzerlik (%)"] else 0
+        if similarity >= 65:
+            return ['background-color: lightgreen; color: red; font-weight: bold'] * len(row)
+        return ['background-color: lightyellow'] * len(row)
     return df.style.apply(highlight_rows, axis=1)
 
 # Zaman aralığı seçimi
