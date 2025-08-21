@@ -2,48 +2,130 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime, timedelta
-from gdown import download
+from io import BytesIO
+from datetime import datetime, timedelta, timezone
+import math
 from collections import Counter
-import time
-from datetime import timezone
-import difflib
 
-# CSS for mobile optimization and styling
-st.markdown("""
-<style>
-h1 { font-weight: bold; color: #05f705; }
-.stButton button { background-color: #4CAF50; color: white; border-radius: 5px; }
-.stDataFrame { font-size: 12px; width: 100%; overflow-x: auto; }
-th { position: sticky; top: 0; background-color: #f0f0f0; z-index: 1; pointer-events: none; }
-.stDataFrame th:hover { cursor: default; }
-</style>
-""", unsafe_allow_html=True)
+# ============================================
+# CONFIG - Varsayılan Drive Linkleri (kullanıcı değiştirilebilir)
+# ============================================
+DEFAULT_LEAGUE_JSON_URL = "https://drive.google.com/file/d/1L8HA_emD92BJSuCn-P9GJF-hH55nIKE7/view?usp=drive_link"
+DEFAULT_MTID_JSON_URL   = "https://drive.google.com/file/d/1N1PjFla683BYTAdzVDaajmcnmMB5wiiO/view?usp=drive_link"
+DEFAULT_MATCHES_XLSX_URL = "https://docs.google.com/spreadsheets/d/11m7tX2xCavCM_cij69UaSVijFuFQbveM/edit?usp=drive_link&ouid=115238146617756521388&rtpof=true&sd=true"
 
-# Title
-st.title("Bülten Analiz")
+IST = timezone(timedelta(hours=3))  # Europe/Istanbul sabit ofset (DST olmayan basit yaklaşım)
 
-# Session state for caching
-if "data" not in st.session_state:
-    st.session_state.data = None
-if "analysis_done" not in st.session_state:
-    st.session_state.analysis_done = False
+# ============================================
+# Yardımcılar - Google Drive/Sheets indirme
+# ============================================
+def _extract_drive_id(url: str) -> str:
+    """
+    Google Drive veya Sheets URL'inden dosya id'sini çıkartır.
+    """
+    if not isinstance(url, str):
+        return ""
+    # Drive dosyası: https://drive.google.com/file/d/<ID>/view
+    if "drive.google.com/file/d/" in url:
+        try:
+            return url.split("/file/d/")[1].split("/")[0]
+        except Exception:
+            return ""
+    # Sheets: https://docs.google.com/spreadsheets/d/<ID>/edit
+    if "docs.google.com/spreadsheets/d/" in url:
+        try:
+            return url.split("/spreadsheets/d/")[1].split("/")[0]
+        except Exception:
+            return ""
+    return ""
 
-# Placeholder for status messages
-status_placeholder = st.empty()
+def _download_json_from_drive(url: str) -> dict:
+    """
+    Paylaşımlı Google Drive (veya docs) linkinden JSON döndürür.
+    """
+    file_id = _extract_drive_id(url)
+    if not file_id:
+        raise ValueError("Geçersiz JSON linki veya ID bulunamadı.")
+    # Drive raw indir
+    raw = f"https://drive.google.com/uc?id={file_id}"
+    r = requests.get(raw, timeout=30)
+    r.raise_for_status()
+    return r.json()
 
-# Oran sütunları (Excel'e göre)
+def _download_sheet_as_excel_df(url: str) -> pd.DataFrame:
+    """
+    Google Sheets linkini .xlsx olarak export edip DataFrame döndürür.
+    """
+    file_id = _extract_drive_id(url)
+    if not file_id:
+        raise ValueError("Geçersiz Sheets/Excel linki veya ID bulunamadı.")
+    export = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
+    r = requests.get(export, timeout=60)
+    r.raise_for_status()
+    bio = BytesIO(r.content)
+    df = pd.read_excel(bio)
+    return df
+
+# ============================================
+# JSON Mapping'leri yükle ve ters mapping kur
+# ============================================
+@st.cache_data(show_spinner=False)
+def load_mappings(league_url: str, mtid_url: str):
+    league_data = _download_json_from_drive(league_url)
+    # keys int olabilir
+    league_mapping = {}
+    for k, v in league_data.items():
+        try:
+            league_mapping[int(k)] = v
+        except Exception:
+            pass
+
+    mtid_data = _download_json_from_drive(mtid_url)
+    mtid_mapping = {}
+    reverse_mapping = {}  # "Maç Sonucu 1" -> {"mtid": 1, "sov": None, "oca_key": "1"}
+    for key_str, value in mtid_data.items():
+        # key_str "(268, -1.0)" veya "(1, null)" formatında bekleniyor
+        if not (isinstance(key_str, str) and key_str.startswith("(") and key_str.endswith(")")):
+            continue
+        parts = key_str[1:-1].split(",")
+        if len(parts) != 2:
+            continue
+        mtid = int(parts[0].strip())
+        sov_raw = parts[1].strip()
+        sov = None
+        if sov_raw.lower() != "null":
+            try:
+                sov = float(sov_raw)
+            except Exception:
+                sov = None
+        # value beklenen: OCA sırasına göre kolon adları listesi
+        if not isinstance(value, list):
+            continue
+        mtid_mapping[(mtid, sov)] = value
+        # reverse map
+        for i, col_name in enumerate(value, start=1):
+            if isinstance(col_name, str):
+                reverse_mapping[col_name] = {"mtid": mtid, "sov": sov, "oca_key": str(i)}
+    return league_mapping, mtid_mapping, reverse_mapping
+
+# ============================================
+# Oran Sütunları (v26 ile aynı set)
+# ============================================
 excel_columns = [
     "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
     "Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2",
-    "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
+    "0,5 Alt/Üst Alt", "0,5 Alt/Üst Üst",
+    "1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst",
     "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst",
     "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
+    "4,5 Alt/Üst Alt", "4,5 Alt/Üst Üst",
     "Karşılıklı Gol Var", "Karşılıklı Gol Yok",
     "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
     "İlk Yarı/Maç Sonucu X/1", "İlk Yarı/Maç Sonucu X/X", "İlk Yarı/Maç Sonucu X/2",
     "İlk Yarı/Maç Sonucu 2/1", "İlk Yarı/Maç Sonucu 2/X", "İlk Yarı/Maç Sonucu 2/2",
     "Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol", "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol",
+    "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
+    "1. Yarı Çifte Şans 1-X", "1. Yarı Çifte Şans 1-2", "1. Yarı Çifte Şans X-2",
     "2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2",
     "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
     "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst",
@@ -55,12 +137,14 @@ excel_columns = [
     "Maç Sonucu ve (4,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (4,5) Alt/Üst X ve Üst", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Üst",
     "1. Yarı 0,5 Alt/Üst Alt", "1. Yarı 0,5 Alt/Üst Üst",
     "1. Yarı 1,5 Alt/Üst Alt", "1. Yarı 1,5 Alt/Üst Üst",
+    "1. Yarı 2,5 Alt/Üst Alt", "1. Yarı 2,5 Alt/Üst Üst",
     "Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst",
     "Evsahibi 1,5 Alt/Üst Alt", "Evsahibi 1,5 Alt/Üst Üst",
     "Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst",
     "Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst",
     "Deplasman 1,5 Alt/Üst Alt", "Deplasman 1,5 Alt/Üst Üst",
     "Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst",
+    "İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2",
     "Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y",
     "Maç Skoru 1-0", "Maç Skoru 2-0", "Maç Skoru 2-1", "Maç Skoru 3-0", "Maç Skoru 3-1", "Maç Skoru 3-2",
     "Maç Skoru 4-0", "Maç Skoru 4-1", "Maç Skoru 4-2", "Maç Skoru 5-0", "Maç Skoru 5-1", "Maç Skoru 6-0",
@@ -71,723 +155,563 @@ excel_columns = [
     "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
 ]
 
-# MTID eşleşmeleri
-mtid_mapping = {
-    (1, None): ["Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2"],
-    (3, None): ["Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2"],
-    (5, None): [
-        "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
-        "İlk Yarı/Maç Sonucu X/1", "İlk Yarı/Maç Sonucu X/X", "İlk Yarı/Maç Sonucu X/2",
-        "İlk Yarı/Maç Sonucu 2/1", "İlk Yarı/Maç Sonucu 2/X", "İlk Yarı/Maç Sonucu 2/2"
-    ],
-    (7, None): ["1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2"],
-    (8, None): ["1. Yarı Çifte Şans 1-X", "1. Yarı Çifte Şans 1-2", "1. Yarı Çifte Şans X-2"],
-    (9, None): ["2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2"],
-    (11, 1.5): ["1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst"],
-    (12, 2.5): ["2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst"],
-    (13, 3.5): ["3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst"],
-    (14, 1.5): ["1. Yarı 1,5 Alt/Üst Alt", "1. Yarı 1,5 Alt/Üst Üst"],
-    (15, 2.5): ["1. Yarı 2,5 Alt/Üst Alt", "1. Yarı 2,5 Alt/Üst Üst"],
-    (15, 3.5): ["1. Yarı Alt/Üst (3,5) Alt", "1. Yarı Alt/Üst (3,5) Üst"],
-    (20, 1.5): ["Evsahibi 1,5 Alt/Üst Alt", "Evsahibi 1,5 Alt/Üst Üst"],
-    (29, 1.5): ["Deplasman 1,5 Alt/Üst Alt", "Deplasman 1,5 Alt/Üst Üst"],
-    (38, None): ["Karşılıklı Gol Var", "Karşılıklı Gol Yok"],
-    (43, None): ["Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol", "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol"],
-    (48, None): ["Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y"],
-    (49, None): ["Tek/Çift Tek", "Tek/Çift Çift"],
-    (155, 4.5): ["4,5 Alt/Üst Alt", "4,5 Alt/Üst Üst"],
-    (155, 5.5): ["5,5 Alt/Üst Alt", "5,5 Alt/Üst Üst"],
-    (205, None): [
-        "Maç Skoru 1-0", "Maç Skoru 2-0", "Maç Skoru 2-1", "Maç Skoru 3-0", "Maç Skoru 3-1", "Maç Skoru 3-2",
-        "Maç Skoru 4-0", "Maç Skoru 4-1", "Maç Skoru 4-2", "Maç Skoru 5-0", "Maç Skoru 5-1", "Maç Skoru 6-0",
-        "Maç Skoru 0-0", "Maç Skoru 1-1", "Maç Skoru 2-2", "Maç Skoru 3-3", "Maç Skoru 0-1", "Maç Skoru 0-2",
-        "Maç Skoru 1-2", "Maç Skoru 0-3", "Maç Skoru 1-3", "Maç Skoru 2-3", "Maç Skoru 0-4", "Maç Skoru 1-4",
-        "Maç Skoru 2-4", "Maç Skoru 0-5", "Maç Skoru 1-5", "Maç Skoru 0-6", "Maç Skoru Diğer"
-    ],
-    (207, 0.5): ["0,5 Alt/Üst Alt", "0,5 Alt/Üst Üst"],
-    (209, 0.5): ["1. Yarı 0,5 Alt/Üst Alt", "1. Yarı 0,5 Alt/Üst Üst"],
-    (212, 0.5): ["Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst"],
-    (216, 6.5): ["(6,5) Korner Alt/Üst Alt", "(6,5) Korner Alt/Üst Üst"],
-    (216, 7.5): ["(7,5) Korner Alt/Üst Alt", "(7,5) Korner Alt/Üst Üst"],
-    (216, 8.5): ["(8,5) Korner Alt/Üst Alt", "(8,5) Korner Alt/Üst Üst"],
-    (216, 9.5): ["(9,5) Korner Alt/Üst Alt", "(9,5) Korner Alt/Üst Üst"],
-    (216, 10.5): ["(10,5) Korner Alt/Üst Alt", "(10,5) Korner Alt/Üst Üst"],
-    (216, 11.5): ["(11,5) Korner Alt/Üst Alt", "(11,5) Korner Alt/Üst Üst"],
-    (216, 12.5): ["(12,5) Korner Alt/Üst Alt", "(12,5) Korner Alt/Üst Üst"],
-    (218, 3.5): ["1.Yarı (3,5) Korner Alt/Üst Alt", "1.Yarı (3,5) Korner Alt/Üst Üst"],
-    (218, 4.5): ["1.Yarı (4,5) Korner Alt/Üst Alt", "1.Yarı (4,5) Korner Alt/Üst Üst"],
-    (218, 5.5): ["1.Yarı (5,5) Korner Alt/Üst Alt", "1.Yarı (5,5) Korner Alt/Üst Üst"],
-    (220, None): ["En Çok Korner 1", "En Çok Korner X", "En Çok Korner 2"],
-    (222, None): ["1. Yarı En Çok Korner 1", "1. Yarı En Çok Korner X", "1. Yarı En Çok Korner 2"],
-    (224, None): ["İlk Korner 1", "İlk Korner Olmaz", "İlk Korner 2"],
-    (225, None): ["Kırmızı Kart Var", "Kırmızı Kart Yok"],
-    (256, 0.5): ["Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst"],
-    (268, -5.0): ["Handikaplı Maç Sonucu (-5,0) 1", "Handikaplı Maç Sonucu (-5,0) X", "Handikaplı Maç Sonucu (-5,0) 2"],
-    (268, -4.0): ["Handikaplı Maç Sonucu (-4,0) 1", "Handikaplı Maç Sonucu (-4,0) X", "Handikaplı Maç Sonucu (-4,0) 2"],
-    (268, -3.0): ["Handikaplı Maç Sonucu (-3,0) 1", "Handikaplı Maç Sonucu (-3,0) X", "Handikaplı Maç Sonucu (-3,0) 2"],
-    (268, -2.0): ["Handikaplı Maç Sonucu (-2,0) 1", "Handikaplı Maç Sonucu (-2,0) X", "Handikaplı Maç Sonucu (-2,0) 2"],
-    (268, -1.0): ["Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2"],
-    (268, 1.0): ["Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2"],
-    (268, 2.0): ["Handikaplı Maç Sonucu (2,0) 1", "Handikaplı Maç Sonucu (2,0) X", "Handikaplı Maç Sonucu (2,0) 2"],
-    (268, 3.0): ["Handikaplı Maç Sonucu (3,0) 1", "Handikaplı Maç Sonucu (3,0) X", "Handikaplı Maç Sonucu (3,0) 2"],
-    (268, 4.0): ["Handikaplı Maç Sonucu (4,0) 1", "Handikaplı Maç Sonucu (4,0) X", "Handikaplı Maç Sonucu (4,0) 2"],
-    (272, 3.5): [
-        "Maç Sonucu ve (3,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (3,5) Alt/Üst X ve Alt", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Alt",
-        "Maç Sonucu ve (3,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (3,5) Alt/Üst X ve Üst", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Üst"
-    ],
-    (272, 4.5): [
-        "Maç Sonucu ve (4,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (4,5) Alt/Üst X ve Alt", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Alt",
-        "Maç Sonucu ve (4,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (4,5) Alt/Üst X ve Üst", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Üst"
-    ],
-    (291, None): ["İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2"],
-    (299, None): ["Korner Tek/Çift Tek", "Korner Tek/Çift Çift"],
-    (301, 2.5): ["(2,5) Kart Alt/Üst Alt", "(2,5) Kart Alt/Üst Üst"],
-    (301, 3.5): ["(3,5) Kart Alt/Üst Alt", "(3,5) Kart Alt/Üst Üst"],
-    (301, 4.5): ["(3,5) Kart Alt/Üst Alt", "(4,5) Kart Alt/Üst Üst"],
-    (301, 5.5): ["(4,5) Kart Alt/Üst Alt", "(5,5) Kart Alt/Üst Üst"],
-    (326, 2.5): ["Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst"],
-    (328, 2.5): ["Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst"],
-    (338, None): ["Toplam Korner Aralığı 0-8", "Toplam Korner Aralığı 9-11", "Toplam Korner Aralığı 12+"],
-    (340, None): ["1. Yarı Korner Aralığı 0-4", "1. Yarı Korner Aralığı 5-6", "1. Yarı Korner Aralığı 7+"],
-    (342, None): [
-        "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
-        "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst"
-    ],
-    (343, None): [
-        "Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
-        "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (2,5) Alt/Üst X ve Üst", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst"
-    ],
-    (461, None): ["Maç Sonucu (Uzt. Dahil) 1", "Maç Sonucu (Uzt. Dahil) 2"]
+CRITICAL_MARKETS = {
+    "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
+    "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst", 
+    "Karşılıklı Gol Var", "Karşılıklı Gol Yok",
+    "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2"
 }
 
-# Lig kodları eşleştirmesi
-league_mapping = {
-
-15: "ABD", 354: "ÇİNSL", 347: "AL1", 62: "RUS1", 19843: "İKP", 19829: "İKP", 132: "AL2", 161: "AL3",
-    47154: "ARJ", 598: "AU2", 1209: "AVU", 1208: "AVUS", 1220: "BEL", 10276: "BR1", 21: "BR2", 1262: "DAN",
-    567: "AVUS", 628: "FİN", 381: "FR1", 614: "FR2", 1809: "GKOR2", 636: "GKOR", 681: "HOL2", 322: "HOL",
-    24: "İN1", 12: "İN2", 52: "İNCL", 152: "İNLK", 43: "İNP", 129: "İS1", 1951: "İS2", 1975: "İSV", 51: "İSÇ",
-    579: "İTA", 1774: "İTB", 10096: "İTC", 642: "JAP", 1873: "NOR", 202: "POL", 1897: "POR2", 566: "POR",
-    1980: "T1L", 584: "TSL", 20152: "BEL", 45056: "BEL", 205: "İRL", 349: "İSÇ2", 143: "İTA", 623: "NOR3", 1259: "ÇEK",
-    35072: "HİNSL", 1238: "ÇİN2", 1894: "POL2", 1913: "ROM", 45: "AL1", 573: "NOR", 10074: "İS3", 45269: "MEK",
-    16324: "BOSN", 47754: "MLTP", 47754: "MALTP", 630: "İZL", 1881: "PER", 1878: "PAR", 1797: "JAP2", 1297: "İCON",
-    1298: "İCON", 1232: "BRK", 1814: "LET", 20401: "GUAT", 23482: "ETH", 16161: "AVNPL", 16332: "İSÇ4", 16336: "İSÇ4",
-    47754: "MALTP", 974: "ENDL1", 2001: "BAE", 10196: "SUUD", 16184: "IRAN", 5610: "BAH", 47539: "MSR", 1242: "KOL",
-    22348: "KAPL", 5161: "EKV1", 1858: "FAS", 970: "USLP", 49: "EKV1", 5571: "ELSAL", 45236: "VEN", 5569: "KOSTA",
-    2841: "ARJPBN", 49: "ŞİL", 2007: "URU", 16338: "USL1", 20546: "BOLİ", 5575: "HON", 5564: "AVNPL", 16331: "GK3L",
-    5562: "AVSQ", 1326: "HK1", 986: "ÇEK2", 16461: "SLVK2", 10063: "İS4", 1995: "UKR", 16340: "VİET", 1215: "BLR",
-    22377: "LET1", 22353: "KEN", 10070: "NOR4", 16336: "İSÇ4", 15822: "EST1", 576: "MAC", 33402: "HIR2", 4: "KAZP",
-    1975: "İSV2", 997: "POL1", 1894: "POL2", 571: "NOR1", 35791: "BUL1", 1817: "LITA", 22365: "LIT1", 25886: "SIRP",
-    742: "GAFPSL", 2701: "GAF1", 33585: "İTAPŞ1", 2935: "İSV1Y", 14408: "FAROEM", 1978: "TUN1", 37159: "MSR2", 20146: "DAN1",
-    10156: "POR3", 1213: "AZERS", 22625: "BAE2", 2702: "MAC2", 2018: "GALWK", 1000: "SLVN", 19: "FİN2", 31578: "MOLD",
-    5441: "YUN", 624: "NOR3", 25909: "ÇEK", 20904: "İSÇ4", 606: "İSÇ3", 16337: "İSÇ4", 620: "İSÇ3", 207: "HIR", 33592: "İNKPL",
-    25887: "SIRP", 23287: "GANA", 19021: "CAFU20", 35789: "BUL1", 1780: "İTC", 44389: "POR3", 1942: "SLVK", 1940: "SLVK", 
-    22378: "SLVN2", 1258: "ÇEK", 2783: "ARJPB", 10093: "NİK", 35126: "MEK2", 45240: "İSV", 45241: "İSV", 701: "BEL", 5576: "SUUD1",
-    33101: "KUV", 352: "ROM", 19013: "CAFU20", 33362: "INGPDL", 20063: "DAN", 16328: "JAP3", 47573: "MSR", 35790: "BUL1",
-    1907: "KATEK", 33740: "KUV", 33266: "IRAK", 19022: "CAFU20", 1927: "İK2", 1926: "İK1", 1925: "İKCL", 10014: "ŞMP", 1821: "LITK",
-    2014: "ABDK", 10057: "CSA", 10008: "LKU", 16326: "GUR", 1217: "BLRK", 10326: "ŞİLİK", 1269: "DAK", 1866: "KİRL", 1826: "MEK", 
-    1877: "NOK", 15881: "SIRBK", 23986: "AVKL", 588: "AVL", 1276: "İNCL", 18221: "BOSK", 1986: "T2L-P", 20523: "ELSAL", 5567: "AVNPL",
-    5563: "AVNPL", 5566: "AVNPL", 2006: "BAECK", 34834: "DAN2", 957: "ALMBÖL", 47856: "İSÇD4", 1268: "DAN2", 33631: "HOLTW", 
-    1310: "FR3", 1329: "İZL1", 350: "İR1", 48011: "MLTP", 48011: "MALTP", 17261: "İZL2", 1918: "RUS1", 26582: "DAN3", 26581: "DAN3",
-    45325: "İTC", 1928: "İKCK", 1199: "CZYR", 1211: "AVU", 36123: "İS4", 45245: "VEN", 16341: "AVNPL", 36161: "İS4", 20166: "DAN1",
-    1310: "FR3", 1277: "İN1", 15921: "YUN", 47667: "YUN", 47988: "ARJ", 1278: "İN2", 45231: "BEL2", 10301: "ALU19", 1947: "GAFK", 47912: "İSÇD4",
-    1783: "İTC", 33637: "İTKSA", 22369: "HK2", 33339: "NPL2", 22622: "İSKPR", 985: "SİNP", 33609: "İTKSA", 45135: "FİN3", 19114: "TANZ",
-    2016: "GAL", 1207: "ARJK", 45329: "FRK1", 15981: "KOSTA", 26050: "USL2", 35955: "INGPDL", 45274: "INGPL2-1",
-    1813: "GKOR", 987: "ÇEK", 1916: "ROM", 1945: "SLVN", 1861: "HOL2", 26102: "AVUS", 2000: "UKR", 10069: "RUS", 1983: "TÜK", 1279: "İBSL",
-    605: "İTK", 19161: "CAFU20", 47034: "ÜRDK", 21755: "KAZP", 1308: "FR2", 1981: "T1L", 16061: "ESTK", 1331: "İZK", 44465: "LUBN",
-    1257: "HIRK", 24424: "MLTAK", 1328: "MACK", 3921: "YUK", 25833: "MOLDK", 1775: "İTB", 1776: "İTB", 1667: "U17", 48203: "MISLK",
-    1941: "SLVK", 20742: "SLVK", 48201: "BOLPLK", 1241: "ÇİNK", 47665: "AFCŞLK", 1805: "JLK", 3886: "SİNK", 1859: "FASK", 33805: "BULK",
-    1309: "FR2", 1860: "HOL", 1311: "AL1P", 48206: "UKŞK", 36617: "İTAPŞ1", 10134: "ŞMP-K", 36621: "POR2", 1914: "ROM2", 26901: "KOSTA",
-    1312: "AL2", 599: "İKK", 130: "AFK", 20743: "POR", 343: "FRK", 1904: "POK", 36864: "BUL1", 10223: "AVKUL", 48231: "FAS", 1924: "SAKK",
-    1531: "HAZ", 36644: "HOLTW", 16335: "İSÇ4", 36915: "BUL1", 20705: "BAH", 26374: "İS3", 1998: "UKR", 1261: "ÇEK", 10082: "CON", 1484: "HAZ",
-    1976: "İSV", 1917: "RUS", 48232: "KDK", 36219: "RUK", 1210: "AVU", 10026: "CAFŞL", 10285: "DKE", 10287: "VENK", 10343: "KOLK", 10253: "DKE",
-    10007: "U21", 1757: "HAZ", 1275: "MSRK", 10050: "DKE", 1407: "AVUL", 1349: "DKE", 1758: "HAZ", 10104: "ASKE", 1755: "HU23", 1304: "FİK",
-    1243: "KOL", 1244: "KOL", 16463: "POL2", 10051: "U21", 1952: "İS2", 1692: "U19", 1458: "GK", 10345: "KDK", 1455: "GK", 958: "HAZ", 1800: "JPK",
-    26803: "U19K", 26788: "U19K", 1691: "U21", 1456: "GK", 19666: "AVNPL", 1946: "GAFPSL", 17682: "MOLD", 1457: "GK", 1708: "U21", 1708: "U21", 1693: "U19",
-    1457: "GK", 1245: "KOL", 26905: "U19K", 1946: "GAFPSL", 45452: "USLKP", 1532: "KDK", 37720: "GURCSK", 48386: "ŞİLİK", 1459: "GK", 10348: "HAZ", 37112: "TAN", 2938: "VEN", 1879: "PAR", 1915: "ROSK",
-    10109: "ABK", 29572: "ARJSK", 890: "ŞMP", 1880: "PARK", 21231: "AVKL",  962: "AVL",  966: "EKVK",  1912: "ROM",  10012: "İKLK",  1246: "KOL",  37: "MEK",  1816: "LETK",
-    1487: "E-1FŞ",  49038: "ARJ",  1919: "RUSK",  1895: "PLS",  21233: "CSA",  31585: "BUL1",  302: "DAN1",  569: "DAN",  345: "ÇEK",  2019: "GALLK",  1772: "İRK",
-    1519: "ABK",  1882: "PER",  17361: "HON",  27036: "USL2",  19666: "AVNPL",  5578: "SIRP",  16961: "GUAT",  1226: "BSK",  16504: "NİK",
-    37976: "AVUK",  21641: "ELSAL",  994: "ALMBÖL",  8881: "BLR1",  47: "AVK",  994: "ALMBÖL",  1314: "ALMBÖL",  1005: "ALMBÖL",  22383: "GALFAW",
-    22382: "GALFAW",  122: "İSV",  148: "BEL",  16681: "KOSTA",  17682: "MOLD",  1939: "SLVK",  21641: "ELSAL",  37976: "AVUK",  45769: "VENK",
-    49705: "CONLK",  49966: "AKUK",  10189: "CONOAK",  27285: "ŞMP-K",  37976: "AVUK",  1314: "ALMBÖL",  600: "PSK",  49705: "CONLK",
-    10189: "CONOAK",  16330: "ÜRD",  994: "ALMBÖL",  1314: "ALMBÖL",  1004: "ALMBÖL",  21535: "DAN2",  568: "AVU",  10053: "İKCL",
-    2008: "URU",  16741: "MEK2",  10055: "İK2",  10054: "İK1",  149: "İKP",  10030: "AUŞ",  574: "HAZ",  1273: "MSR",  38310: "UŞGA",
-    2665: "İNGNLP",  2667: "İNGNLP",  22381: "TAY",  22384: "DAN3",  401: "İBSL",  1147: "GAL",  50854: "İSÇD4",  29901: "SİNCS",
-    1868: "KİRL1",  1949: "GAF8K",  140: "İCON",  134: "İCON",  50811: "İSÇD4",  2646: "İNGNLP",  14: "İKLK",  1865: "KİRL",
-    2674: "BEL2",  17982: "UMM",  28245: "POR3",  1905: "KAT",  1795: "İTCK",  38309: "UŞGB",  10302: "MLTP",  28246: "POR3",  1977: "İSVK",  589: "ALSK",
-    7782: "TAYV",  33544: "JWEL",  49917: "MAC3",  49915: "MAC3", 49916: "MAC3", 33472: "INGPL2", 49918: "MAC3", 1923: "SUUSK", 1974: "İSÇK", 151: "İNLK", 39474: "ŞMP",
-    39915: "KOSTK", 10181: "CONLK", 39548: "AVKL", 39172: "AVL"
-
+IMPORTANT_MARKETS = {
+    "0,5 Alt/Üst Alt", "0,5 Alt/Üst Üst",
+    "1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst", 
+    "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
+    "Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2"
 }
 
-# Function to style DataFrame
-def style_dataframe(df, output_rows):
-    def highlight_rows(row):
-        if row["Benzerlik (%)"] == "":
-            return ['background-color: #f70511'] * len(row)
-        return [''] * len(row)
-    
-    def highlight_scores(df, output_rows):
-        styles = pd.DataFrame('', index=df.index, columns=df.columns)
-        groups = []
-        current_group = []
-        for row in output_rows:
-            if not row:
-                if current_group:
-                    groups.append(current_group)
-                current_group = []
-                continue
-            current_group.append(row)
-        if current_group:
-            groups.append(current_group)
-    
-        df_index = 0
-        for group in groups:
-            match_rows = [r for r in group if r.get("Benzerlik (%)", "") != ""]
-            group_size = len(group)
-            if len(match_rows) < 5:
-                df_index += group_size
-                continue
-            # IY SKOR ve MS SKOR için ayrı ayrı kontrol
-            iy_scores = Counter([r.get("IY SKOR", "") for r in match_rows if r.get("IY SKOR", "") != ""])
-            ms_scores = Counter([r.get("MS SKOR", "") for r in match_rows if r.get("MS SKOR", "") != ""])
-            for i in range(df_index, df_index + group_size):
-                if i >= len(df):
-                    break
-                row = df.iloc[i]
-                if row["IY SKOR"] in iy_scores and iy_scores[row["IY SKOR"]] >= 5:
-                    styles.at[i, "IY SKOR"] = 'background-color: #0000FF'
-                if row["MS SKOR"] in ms_scores and ms_scores[row["MS SKOR"]] >= 5:
-                    styles.at[i, "MS SKOR"] = 'background-color: #0000FF'
-            df_index += group_size
-        return styles
-    
-    styled_df = df.style.apply(highlight_rows, axis=1).set_table_styles(
-        [{'selector': 'th', 'props': [('position', 'sticky'), ('top', '0'), ('background-color', '#f0f0f0')]}]
-    )
-    styled_df = styled_df.apply(highlight_scores, output_rows=output_rows, axis=None)
-    return styled_df
+OTHER_MARKETS = set(excel_columns) - CRITICAL_MARKETS - IMPORTANT_MARKETS
 
-# Function to fetch API data from Nesine
-def fetch_api_data():
+# ============================================
+# Benzerlik hesaplama (v26 mantığı)
+# ============================================
+def calculate_similarity(api_odds: dict, match_odds: dict) -> float:
+    """
+    API maç oran profili ile arşiv maç oran profili arasındaki benzerlik (0-100).
+    - Oranlar olasılığa çevrilir (p=1/odd), 1X2 fair normalize edilir.
+    - Kapı: 1X2 benzerlik ≥ 0.85 ve her bacakta (1/X/2) göreli fark ≤ %12.
+    - Grup ağırlıkları: High 0.65 / Med 0.25 / Low 0.10.
+    - Grup başına kapsam küçültme (shrink): az ölçümle skor şişmesin.
+    - Çifte Şans ve O/U merdivenindeki ikiz pazarlar yarım ağırlık (double-count freni).
+    - İkili pazarlarda ceza: sim = exp(-C*rel_diff)  (C≈3.5).
+    """
+    def to_float(x):
+        try:
+            return float(x)
+        except Exception:
+            return None
+
+    def prob(odd):
+        o = to_float(odd)
+        if o is None or o <= 1.0:
+            return None
+        return 1.0 / o
+
+    def fair_pair(pa, pb):
+        if pa is None or pb is None:
+            return (None, None)
+        s = pa + pb
+        if s <= 0:
+            return (None, None)
+        return (pa / s, pb / s)
+
+    def fair_trio_from_odds(odds_dict, k1, kx, k2):
+        p1, px, p2 = prob(odds_dict.get(k1)), prob(odds_dict.get(kx)), prob(odds_dict.get(k2))
+        if None in (p1, px, p2):
+            return None
+        s = p1 + px + p2
+        if s <= 0:
+            return None
+        return (p1 / s, px / s, p2 / s)
+
+    def hellinger(p, q):
+        # 3-bacak için Hellinger benzerliği
+        return max(0.0, 1.0 - (math.sqrt(
+            (math.sqrt(p[0]) - math.sqrt(q[0]))**2 +
+            (math.sqrt(p[1]) - math.sqrt(q[1]))**2 +
+            (math.sqrt(p[2]) - math.sqrt(q[2]))**2
+        ) / math.sqrt(2.0)))
+
+    def rel_diff(pa, pb):
+        # |a-b| / mean(a,b)
+        if pa is None or pb is None or pa <= 0 or pb <= 0:
+            return None
+        return abs(pa - pb) / ((pa + pb) / 2.0)
+
+    def bin_sim(key):
+        # ikili pazar: olasılıklarda göreli farkı cezalandır
+        if key not in api_odds or key not in match_odds:
+            return None
+        pa, pb = prob(api_odds[key]), prob(match_odds[key])
+        d = rel_diff(pa, pb)
+        if d is None:
+            return None
+        C = 3.5
+        return math.exp(-C * d)
+
+    def have(*keys):
+        return all(k in api_odds and k in match_odds and to_float(api_odds[k]) and to_float(match_odds[k]) for k in keys)
+
+    MS1, MSX, MS2 = "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2"
+    KG_V, KG_Y = "Karşılıklı Gol Var", "Karşılıklı Gol Yok"
+    O25U, O25A = "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst"
+
+    # 1) 1X2 fair normalize & gate
+    api_ms   = fair_trio_from_odds(api_odds, MS1, MSX, MS2)
+    match_ms = fair_trio_from_odds(match_odds, MS1, MSX, MS2)
+    if not api_ms or not match_ms:
+        return 0.0
+
+    base_sim = hellinger(api_ms, match_ms)
+    if base_sim < 0.85:
+        return base_sim * 100.0  # erken düşük skor
+
+    # bacak başı göreli fark şartı
+    diffs_ok = True
+    for a, b in zip(api_ms, match_ms):
+        d = rel_diff(a, b)
+        if d is None or d > 0.12:
+            diffs_ok = False
+            break
+    if not diffs_ok:
+        return base_sim * 100.0
+
+    # 2) Gruplar
+    high_list = []
+    # 1X2 üçlü
+    high_list.append(("1X2", base_sim, 1.0))
+    # KG (tam)
+    s = bin_sim(KG_V)
+    if s is not None: high_list.append((KG_V, s, 1.0))
+    s = bin_sim(KG_Y)
+    if s is not None: high_list.append((KG_Y, s, 1.0))
+    # O25 (tam)
+    s = bin_sim(O25U)
+    if s is not None: high_list.append((O25U, s, 1.0))
+    s = bin_sim(O25A)
+    if s is not None: high_list.append((O25A, s, 1.0))
+    # Çifte Şans (yarım)
+    for k in ("Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2"):
+        s = bin_sim(k)
+        if s is not None:
+            high_list.append((k, s, 0.5))
+
+    # AH (-1,0) ve (1,0)
+    for k in ("Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2",
+              "Handikaplı Maç Sonucu (1,0) 1",  "Handikaplı Maç Sonucu (1,0) X",  "Handikaplı Maç Sonucu (1,0) 2"):
+        s = bin_sim(k)
+        if s is not None:
+            high_list.append((k, s, 1.0))
+
+    # Medium: 1. yarı 1X2 + O/U merdiven temsilcileri + 2. yarı 1X2 + gol aralıkları
+    MED_KEYS = [
+        "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
+        "0,5 Alt/Üst Alt", "0,5 Alt/Üst Üst",
+        "1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst",
+        "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
+        "4,5 Alt/Üst Alt", "4,5 Alt/Üst Üst",
+        "5,5 Alt/Üst Alt", "5,5 Alt/Üst Üst",
+        "6,5 Alt/Üst Alt", "6,5 Alt/Üst Üst",
+        "7,5 Alt/Üst Alt", "7,5 Alt/Üst Üst",
+        "2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2",
+        "Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol", "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol",
+    ]
+    med_list = []
+    for k in MED_KEYS:
+        s = bin_sim(k)
+        if s is not None:
+            # O/U merdiveninde ikizleri yarım ağırlık say (yakın eş pazarlar)
+            w = 0.5 if "Alt/Üst" in k else 1.0
+            med_list.append((k, s, w))
+
+    # Low: kalan pazarlar
+    low_list = []
+    for k in OTHER_MARKETS:
+        s = bin_sim(k)
+        if s is not None:
+            low_list.append((k, s, 1.0))
+
+    # 3) Grup skorları (shrink)
+    def group_score(items):
+        if not items:
+            return None
+        sims = [s for _, s, _ in items]
+        ws   = [w for _, _, w in items]
+        # shrink: az öğede 1.0'a şişmesin
+        shrink = min(1.0, (sum(ws) / (len(items) + 2.0)))
+        return (sum(s*w for s,w in zip(sims, ws)) / sum(ws)) * shrink
+
+    high_sim = group_score(high_list)
+    med_sim  = group_score(med_list)
+    low_sim  = group_score(low_list)
+
+    # 4) Ağırlıklı birleşim
+    W_HIGH, W_MED, W_LOW = 0.65, 0.25, 0.10
+    total, wsum = 0.0, 0.0
+    for sim, w in ((high_sim, W_HIGH), (med_sim, W_MED), (low_sim, W_LOW)):
+        if sim is not None:
+            total += sim * w
+            wsum  += w
+    if wsum == 0:
+        return base_sim * 100.0
+    score = total / wsum
+
+    # 5) Anchor kontrolü
+    anchors = 0
+    if have(MS1, MSX, MS2): anchors += 1
+    if have(KG_V, KG_Y):    anchors += 1
+    if have(O25U, O25A):    anchors += 1
+    ah_has = any(k in match_odds for k in (
+        "Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2",
+        "Handikaplı Maç Sonucu (1,0) 1",  "Handikaplı Maç Sonucu (1,0) X",  "Handikaplı Maç Sonucu (1,0) 2",
+    ))
+    if ah_has:
+        anchors += 1
+    if anchors < 2:
+        score = min(score, 0.85)
+
+    return float(score * 100.0)
+
+# ============================================
+# Kalite filtresi (v26)
+# ============================================
+def quality_filter(api_odds: dict, data_odds: dict) -> bool:
+    api_cnt  = sum(1 for col in excel_columns if col in api_odds and pd.notna(api_odds[col]))
+    data_cnt = sum(1 for col in excel_columns if col in data_odds and pd.notna(data_odds[col]))
+    if data_cnt < api_cnt * 0.7:
+        return False
+    critical_count = sum(1 for m in CRITICAL_MARKETS if m in data_odds and pd.notna(data_odds[m]))
+    if critical_count < max(1, int(len(CRITICAL_MARKETS) * 0.5)):  # en az yarısı
+        return False
+    return True
+
+# ============================================
+# V26 tarzı Prediction kuralları (MTID/SOV/oca_key ters mapping ile)
+# ============================================
+def _parse_score(score_text: str):
+    try:
+        a, b = score_text.strip().split("-")
+        return int(a), int(b)
+    except Exception:
+        return None, None
+
+def build_prediction_rules():
+    """
+    Her kural sadece 'column_name' ve 'func' taşır.
+    MTID/SOV/oca_key bilgisi JSON reverse_mapping'den bulunur.
+    """
+    rules = {
+        "Maç Sonucu 1": {"func": lambda row: (lambda h,a: h>a)(*_parse_score(row.get("MS SKOR","")) )},
+        "Maç Sonucu X": {"func": lambda row: (lambda h,a: h==a)(*_parse_score(row.get("MS SKOR","")) )},
+        "Maç Sonucu 2": {"func": lambda row: (lambda h,a: h<a)(*_parse_score(row.get("MS SKOR","")) )},
+
+        "1. Yarı Sonucu 1": {"func": lambda row: (lambda h,a: h>a)(*_parse_score(row.get("IY SKOR","")) )},
+        "1. Yarı Sonucu X": {"func": lambda row: (lambda h,a: h==a)(*_parse_score(row.get("IY SKOR","")) )},
+        "1. Yarı Sonucu 2": {"func": lambda row: (lambda h,a: h<a)(*_parse_score(row.get("IY SKOR","")) )},
+
+        "2,5 Alt/Üst Alt": {"func": lambda row: (lambda h,a: (h+a) <= 2)(*_parse_score(row.get("MS SKOR","")) )},
+        "2,5 Alt/Üst Üst": {"func": lambda row: (lambda h,a: (h+a) >= 3)(*_parse_score(row.get("MS SKOR","")) )},
+
+        "Karşılıklı Gol Var": {"func": lambda row: (lambda h,a: (h>0 and a>0))(*_parse_score(row.get("MS SKOR","")) )},
+        "Karşılıklı Gol Yok": {"func": lambda row: (lambda h,a: (h==0 or a==0))(*_parse_score(row.get("MS SKOR","")) )},
+
+        # Çifte Şans örnekleri
+        "Çifte Şans 1 veya X": {"func": lambda row: (lambda h,a: h>=a)(*_parse_score(row.get("MS SKOR","")) )},
+        "Çifte Şans 1 veya 2": {"func": lambda row: (lambda h,a: h!=a)(*_parse_score(row.get("MS SKOR","")) )},
+        "Çifte Şans X veya 2": {"func": lambda row: (lambda h,a: h<=a)(*_parse_score(row.get("MS SKOR","")) )},
+
+        # Handikap (-1,0): ev sahibi 1 gol eksik başlar
+        "Handikaplı Maç Sonucu (-1,0) 1": {"func": lambda row: (lambda h,a: (h - 1) > a)(*_parse_score(row.get("MS SKOR","")) )},
+        "Handikaplı Maç Sonucu (-1,0) X": {"func": lambda row: (lambda h,a: (h - 1) == a)(*_parse_score(row.get("MS SKOR","")) )},
+        "Handikaplı Maç Sonucu (-1,0) 2": {"func": lambda row: (lambda h,a: (h - 1) < a)(*_parse_score(row.get("MS SKOR","")) )},
+
+        # Handikap (1,0): ev sahibi 1 gol avantajlı başlar
+        "Handikaplı Maç Sonucu (1,0) 1": {"func": lambda row: (lambda h,a: (h + 1) > a)(*_parse_score(row.get("MS SKOR","")) )},
+        "Handikaplı Maç Sonucu (1,0) X": {"func": lambda row: (lambda h,a: (h + 1) == a)(*_parse_score(row.get("MS SKOR","")) )},
+        "Handikaplı Maç Sonucu (1,0) 2": {"func": lambda row: (lambda h,a: (h + 1) < a)(*_parse_score(row.get("MS SKOR","")) )},
+    }
+    return rules
+
+# ============================================
+# Veri kaynakları
+# ============================================
+@st.cache_data(show_spinner=False)
+def load_matches_excel(url: str) -> pd.DataFrame:
+    df = _download_sheet_as_excel_df(url)
+    # Temizlik: odds kolonlarını numerik yap
+    for col in excel_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Standart kolon isimleri varsa bırak
+    return df
+
+@st.cache_data(show_spinner=False)
+def fetch_api_data(league_mapping: dict, mtid_mapping: dict):
+    """
+    Nesine bülten delta API'den veri çek ve mtid_mapping'e göre oran kolonlarını doldur.
+    """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
         "Referer": "https://www.nesine.com/",
-        "Accept-Language": "tr-TR,tr;q=0.9",
-        "Connection": "keep-alive",
-        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json, text/plain, */*",
     }
     url = "https://bulten.nesine.com/api/bulten/getprebultendelta?marketVersion=1716908400&eventVersion=1716908400"
-    try:
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
-        match_data = response.json()
-        
-        if isinstance(match_data, dict) and "sg" in match_data and "EA" in match_data["sg"]:
-            return match_data["sg"]["EA"], match_data
-        else:
-            return [], {"error": "No EA data"}
-    except Exception as e:
-        return [], {"error": str(e)}
+    r = requests.get(url, headers=headers, timeout=30)
+    r.raise_for_status()
+    data = r.json()
 
-# Function to process API data into DataFrame
-def process_api_data(match_list, raw_data, start_datetime, end_datetime):
-    with status_placeholder.container():
-        status_placeholder.write("Bültendeki maçlar işleniyor...")
-        time.sleep(0.1)
+    match_list = data.get("Data", {}).get("EventList", [])
+    out_rows = []
 
-    with status_placeholder.container():
-        status_placeholder.write(f"Analiz aralığı: {start_datetime.strftime('%d.%m.%Y %H:%M')} - {end_datetime.strftime('%d.%m.%Y %H:%M')}")
-        time.sleep(0.1)
-    
-    api_matches = []
-    tarih_samples = []
-    handicap_samples = []
-    skipped_matches = []
-    
-    for match in match_list:
-        if not isinstance(match, dict):
-            skipped_matches.append({"reason": "Not a dict", "data": str(match)[:50]})
-            continue
-        
-        match_date = match.get("D", "")
-        match_time = match.get("T", "")
-        if match_date and len(tarih_samples) < 5:
-            tarih_samples.append(f"{match_date} {match_time}")
-        
+    for m in match_list:
         try:
-            if not match_date or not match_time:
-                raise ValueError("Missing date or time")
-            match_datetime = datetime.strptime(f"{match_date} {match_time}", "%d.%m.%Y %H:%M").replace(tzinfo=timezone(timedelta(hours=3)))  # TR saati
-        except ValueError as e:
-            skipped_matches.append({"reason": f"Date parse error: {str(e)}", "date": match_date, "time": match_time})
-            continue
-        
-        if not (start_datetime <= match_datetime <= end_datetime):
-            skipped_matches.append({"reason": "Outside time range", "date": match_date, "time": match_time})
-            continue
-        
-        league_code = match.get("LC", None)
-        league_name = league_mapping.get(league_code, str(league_code))
-
-        iy_kg_oran = np.nan
-        for market in match.get("MA", []):
-            if market.get("MTID") == 452:
-                oca_list = market.get("OCA", [])
-                for outcome in oca_list:
-                    if outcome.get("N") == 1:
-                        odds = outcome.get("O")
-                        if odds is not None and isinstance(odds, (int, float)):
-                            iy_kg_oran = float(odds)
-                        break
-                break
-                
-        match_info = {
-            "Saat": match_time,
-            "Tarih": match_date,
-            "Ev Sahibi Takım": match.get("HN", ""),
-            "Deplasman Takım": match.get("AN", ""),
-            "IY KG ORAN": iy_kg_oran,
-            "Lig Adı": league_name,
-            "İY/MS": "Var" if any(m.get("MTID") == 5 for m in match.get("MA", [])) else "Yok",
-            "match_datetime": match_datetime,
-            "MTIDs": [m.get("MTID") for m in match.get("MA", [])]  # Korner kontrolü için
-        }
-        
-        filled_columns = []
-        for market in match.get("MA", []):
-            mtid = market.get("MTID")
-            sov = market.get("SOV")
-            key = (mtid, float(sov) if sov is not None else None) if mtid in [14, 15, 20, 29, 155, 268, 272, 349, 352] else (mtid, None)
-            if key not in mtid_mapping:
+            match_date = m.get("D", "")
+            match_time = m.get("T", "")
+            if not (match_date and match_time):
                 continue
-            column_names = mtid_mapping[key]
-            oca_list = market.get("OCA", [])
-            
-            for idx, outcome in enumerate(oca_list):
-                odds = outcome.get("O")
-                if odds is None or not isinstance(odds, (int, float)):
-                    continue
-                if idx >= len(column_names):
-                    continue
-                matched_column = column_names[idx]
-                match_info[matched_column] = float(odds)
-                filled_columns.append(matched_column)
-                if key == (268, -1.0) and len(handicap_samples) < 5:
-                    handicap_samples.append(f"{matched_column}: {odds}")
-        
-        match_info["Oran Sayısı"] = f"{len(filled_columns)}/{len(excel_columns)}"
-        skipped_matches.append({
-            "reason": "Match included",
-            "date": match_date,
-            "time": match_time,
-            "match_datetime": match_datetime.strftime("%d.%m.%Y %H:%M"),
-            "home_team": match.get("HN", ""),
-            "away_team": match.get("AN", "")
-        })
-        api_matches.append(match_info)
-    
-    api_df = pd.DataFrame(api_matches)
-    if api_df.empty:
-        with status_placeholder.container():
-            status_placeholder.write(f"Uyarı: Seçilen saat aralığında maç bulunamadı. Bülten verisi: {len(match_list)} maç, atlanan: {len(skipped_matches)}")
-            status_placeholder.write(f"Atlanma nedenleri (ilk 5): {[{k: v for k, v in s.items() if k != 'data'} for s in skipped_matches[:5]]}")
-            status_placeholder.write(f"Çekilen maçlar (ilk 5): {[dict((k, v) for k, v in s.items() if k != 'data') for s in [s for s in skipped_matches if s['reason'] == 'Match included'][:5]]}")
-        return api_df
+            match_dt = datetime.strptime(f"{match_date} {match_time}", "%d.%m.%Y %H:%M").replace(tzinfo=IST)
 
-    api_df = api_df.sort_values(by="match_datetime", ascending=True).reset_index(drop=True)
-    api_df = api_df.drop(columns=["match_datetime"])
-    
-    if 'Maç Sonucu 1' not in api_df.columns:
-        api_df['Maç Sonucu 1'] = 2.0
-    if 'Maç Sonucu X' not in api_df.columns:
-        api_df['Maç Sonucu X'] = 3.5
-    if 'Maç Sonucu 2' not in api_df.columns:
-        api_df['Maç Sonucu 2'] = 3.0
-    
-    for col in excel_columns:
-        if col in api_df.columns:
-            api_df[col] = pd.to_numeric(api_df[col], errors='coerce')
-            api_df.loc[:, col] = api_df[col].where(api_df[col] > 1.0, np.nan)
-    
-    with status_placeholder.container():
-        status_placeholder.write(f"Bültenden {len(api_df)} maç işlendi.")
-        status_placeholder.write(f"Bülten maçlarının Tarih örnekleri: {tarih_samples}")
-        status_placeholder.write(f"Handikaplı Maç Sonucu (-1,0) örnekleri: {handicap_samples}")
-        time.sleep(0.1)
+            league_code = m.get("LC", None)
+            league_name = league_mapping.get(int(league_code)) if league_code is not None else str(league_code)
+
+            base = {
+                "Saat": match_time,
+                "Tarih": match_date,
+                "Ev Sahibi Takım": m.get("HN", ""),
+                "Deplasman Takım": m.get("AN", ""),
+                "Lig Adı": league_name if league_name else "",
+                "match_datetime": match_dt,
+                "MA": m.get("MA", []),  # marketler
+            }
+            # Oran kolonlarını boş ekle
+            for col in excel_columns:
+                base[col] = np.nan
+
+            # MTID/SOV -> kolon eşleme
+            for market in m.get("MA", []):
+                mtid = market.get("MTID")
+                sov  = market.get("SOV", None)
+                try:
+                    sov_key = None if sov is None else float(sov)
+                except Exception:
+                    sov_key = None
+                key = (int(mtid), sov_key) if mtid is not None else None
+                if key and key in mtid_mapping:
+                    col_names = mtid_mapping[key]  # OCA sırası
+                    oca_list = market.get("OCA", [])
+                    for idx, col_name in enumerate(col_names, start=1):
+                        # OCA içinden N == idx olanın O (oran) değerini bul
+                        val = None
+                        for oca in oca_list:
+                            if str(oca.get("N")) == str(idx):
+                                val = oca.get("O")
+                                break
+                        if col_name in base:
+                            try:
+                                base[col_name] = float(val) if val not in (None, "",) else np.nan
+                            except Exception:
+                                base[col_name] = np.nan
+            out_rows.append(base)
+        except Exception:
+            continue
+
+    api_df = pd.DataFrame(out_rows)
     return api_df
 
-# Function to calculate corner average
-def calculate_corner_average(data, home_team, away_team, league_name, current_date):
-    if league_name not in data["Lig Adı"].values:
-        return np.nan
-    
-    # Lig bazlı filtreleme
-    league_data = data[data["Lig Adı"] == league_name].copy()
-    
-    # Takım isimlerini normalize et ve eşleştir
-    league_teams = set(league_data["Ev Sahibi Takım"].unique()).union(set(league_data["Deplasman Takım"].unique()))
-    home_team_match = difflib.get_close_matches(home_team, league_teams, n=1, cutoff=0.6)
-    away_team_match = difflib.get_close_matches(away_team, league_teams, n=1, cutoff=0.6)
-    
-    if not home_team_match or not away_team_match:
-        return np.nan
-    
-    home_team = home_team_match[0]
-    away_team = away_team_match[0]
-    
-    # Tarihleri datetime'a çevir
-    league_data["Tarih"] = pd.to_datetime(league_data["Tarih"], errors="coerce", dayfirst=True)
-    league_data = league_data.dropna(subset=["Tarih"]).sort_values(by="Tarih", ascending=False)
-    
-    # Ev sahibi takımın son 5 maçı
-    home_matches = league_data[
-        (league_data["Ev Sahibi Takım"] == home_team) | (league_data["Deplasman Takım"] == home_team)
-    ].head(5)
-    
-    home_corners = []
-    for _, row in home_matches.iterrows():
-        if row["Ev Sahibi Takım"] == home_team:
-            corner = row["EV KORNER"] if pd.notna(row["EV KORNER"]) else 0
-        else:
-            corner = row["DEP KORNER"] if pd.notna(row["DEP KORNER"]) else 0
-        home_corners.append(corner)
-    
-    # Deplasman takımın son 5 maçı
-    away_matches = league_data[
-        (league_data["Ev Sahibi Takım"] == away_team) | (league_data["Deplasman Takım"] == away_team)
-    ].head(5)
-    
-    away_corners = []
-    for _, row in away_matches.iterrows():
-        if row["Ev Sahibi Takım"] == away_team:
-            corner = row["EV KORNER"] if pd.notna(row["EV KORNER"]) else 0
-        else:
-            corner = row["DEP KORNER"] if pd.notna(row["DEP KORNER"]) else 0
-        away_corners.append(corner)
-    
-    # Ortalama hesaplama
-    home_avg = np.mean(home_corners) if home_corners else 0
-    away_avg = np.mean(away_corners) if away_corners else 0
-    total_avg = home_avg + away_avg
-    
-    return round(total_avg, 2) if total_avg > 0 else np.nan
+# ============================================
+# Benzer arama
+# ============================================
+def build_odds_row_from_dfrow(row: pd.Series) -> dict:
+    return {col: row[col] for col in excel_columns if col in row and pd.notna(row[col])}
 
-# Function to find similar matches
-def find_similar_matches(api_df, data):
-    with status_placeholder.container():
-        status_placeholder.write("Maçlar analiz ediliyor...")
-        time.sleep(0.1)
-    
-    output_rows = []
-    min_columns = int(len(excel_columns) * 0.15)
-    league_keys = set(league_mapping.values())
-    
-    current_date = datetime.now(timezone(timedelta(hours=3)))
-    
-    for idx, row in api_df.iterrows():
-        api_odds = {col: row[col] for col in excel_columns if col in row and pd.notna(row[col])}
-        if len(api_odds) < min_columns:
+def find_similar_matches(api_row: pd.Series, matches_df: pd.DataFrame, min_candidates: int = 10, top_k: int = 25):
+    api_odds = build_odds_row_from_dfrow(api_row)
+    if not api_odds:
+        return []
+
+    # adaylar: ilgili lig öncelikli (varsa), sonra tüm ligler
+    if "Lig Adı" in api_row and pd.notna(api_row["Lig Adı"]):
+        same_league = matches_df[matches_df["Lig Adı"] == api_row["Lig Adı"]]
+    else:
+        same_league = pd.DataFrame(columns=matches_df.columns)
+
+    others = matches_df if same_league.empty else matches_df[matches_df["Lig Adı"] != api_row["Lig Adı"]]
+    candidates = pd.concat([same_league, others], ignore_index=True)
+
+    results = []
+    for _, drow in candidates.iterrows():
+        data_odds = build_odds_row_from_dfrow(drow)
+        if not data_odds:
             continue
-        
-        api_league = row["Lig Adı"]
-        include_global_matches = api_league in league_keys
-        data_filtered = data[data["Lig Adı"] == api_league] if api_league in league_keys else data
-        if data_filtered.empty:
+        if not quality_filter(api_odds, data_odds):
             continue
-        
-        if len(data_filtered) > 2000:
-            data_filtered = data_filtered.sample(n=2000, random_state=0)
-        
-        common_columns = [col for col in api_odds if col in data_filtered.columns]
-        if len(common_columns) < min_columns:
+        sim = calculate_similarity(api_odds, data_odds)
+        if sim <= 0:
             continue
-        
-        # Korner ortalaması hesaplama
-        corner_avg = np.nan
-        if (338 in row["MTIDs"] or 216 in row["MTIDs"]) and api_league in league_keys:
-            corner_avg = calculate_corner_average(
-                data, row["Ev Sahibi Takım"], row["Deplasman Takım"], api_league, current_date
-            )
-        
-        api_odds_array = np.array([
-            float(api_odds.get(col)) if api_odds.get(col) not in ["", None] else np.nan
-            for col in common_columns
-        ])
-        data_odds_array = data_filtered[common_columns].to_numpy(dtype=float, na_value=np.nan)
-        diff_sums = np.nansum(np.abs(data_odds_array - api_odds_array) / np.maximum(np.abs(data_odds_array), np.abs(api_odds_array)), axis=1)
-        similarity_percents = (1 - diff_sums / len(common_columns)) * 100
-        
-        similarities = []
-        for i, sim_percent in enumerate(similarity_percents):
-            if np.isnan(sim_percent):
+        results.append({
+            "similarity": sim,
+            "row": drow
+        })
+        if len(results) >= 5000:  # güvenlik
+            break
+
+    if not results:
+        return []
+
+    # benzerlik sıralı top_k
+    results.sort(key=lambda x: x["similarity"], reverse=True)
+    return results[:top_k]
+
+# ============================================
+# Skor Tahmini & Genel Tahmin (v26 mantığı sadeleşmiş)
+# ============================================
+def predict_scores_and_markets(api_row: pd.Series, similars, reverse_mapping: dict, min_majority_ratio=0.65, pred_threshold=80.0):
+    """
+    similars: [{"similarity": float, "row": Series}, ...]
+    Döndürür: predicted_iy, predicted_ms, predictions_text(list[str])
+    """
+    if not similars:
+        return "", "", []
+
+    # 1) Skor modları
+    ms_scores = [s["row"].get("MS SKOR", "") for s in similars if str(s["row"].get("MS SKOR","")).strip()]
+    iy_scores = [s["row"].get("IY SKOR", "") for s in similars if str(s["row"].get("IY SKOR","")).strip()]
+
+    def majority(scores):
+        if not scores:
+            return ""
+        counts = Counter(scores)
+        score, count = counts.most_common(1)[0]
+        if count / max(1, len(scores)) >= min_majority_ratio:
+            return score
+        return ""
+
+    pred_ms = majority(ms_scores)
+    pred_iy = majority(iy_scores)
+
+    # 2) Prediction Criteria
+    rules = build_prediction_rules()
+    predictions = []
+    total = len(similars)
+
+    # API'de MTID/SOV mevcut mu ve oran çek?
+    def find_market_odds(api_row_local, mtid, sov, oca_key):
+        for market in api_row_local.get("MA", []):
+            if market.get("MTID") != mtid:
                 continue
-            data_row = data_filtered.iloc[i]
-            similarities.append({
-                "similarity_diff": diff_sums[i],
-                "similarity_percent": sim_percent,
-                "data_row": data_row
-            })
-        
-        similarities.sort(key=lambda x: x["similarity_diff"])
-        top_league_matches = similarities[:5]
-        
-        match_info = {
-            "Benzerlik (%)": "",
-            "İY/MS": row["İY/MS"],
-            "Oran Sayısı": row["Oran Sayısı"],
-            "Korner Ort.": corner_avg if pd.notna(corner_avg) else "",
-            "Saat": row["Saat"],
-            "Tarih": row["Tarih"],
-            "Ev Sahibi Takım": row["Ev Sahibi Takım"],
-            "Deplasman Takım": row["Deplasman Takım"],
-            "Lig Adı": row["Lig Adı"],
-            "IY KG ORAN": "" if pd.isna(row.get("IY KG ORAN")) else row.get("IY KG ORAN"),
-            "IY SKOR": "",
-            "MS SKOR": ""
-        }
-        for col in data.columns:
-            if col in excel_columns:
-                match_info[col] = row.get(col, np.nan)
-            elif col not in match_info:
-                match_info[col] = ""
-        output_rows.append(match_info)
-        
-        for match in top_league_matches:
-            data_row = match["data_row"]
-            match_odds_count = sum(1 for col in excel_columns if col in data_row and pd.notna(data_row[col]))
-            match_info = {
-                "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
-                "İY/MS": "",
-                "Oran Sayısı": f"{match_odds_count}/{len(excel_columns)}",
-                "Korner Ort.": "",
-                "Saat": "",
-                "Tarih": str(data_row.get("Tarih", "")),
-                "Ev Sahibi Takım": str(data_row.get("Ev Sahibi Takım", "")),
-                "Deplasman Takım": str(data_row.get("Deplasman Takım", "")),
-                "Lig Adı": str(data_row.get("Lig Adı", "")),
-                "IY KG ORAN": "",
-                "IY SKOR": str(data_row.get("IY SKOR", "")),
-                "MS SKOR": str(data_row.get("MS SKOR", ""))
-            }
-            for col in data.columns:
-                if col not in match_info:
-                    match_info[col] = str(data_row.get(col, ""))
-            output_rows.append(match_info)
-        
-        if include_global_matches:
-            data_global = data.copy()
-            if len(data_global) > 2000:
-                data_global = data_global.sample(n=2000, random_state=0)
-            
-            common_columns_global = [col for col in api_odds if col in data_global.columns]
-            if len(common_columns_global) < min_columns:
-                continue
-            
-            api_odds_array_global = np.array([api_odds.get(col, np.nan) for col in common_columns_global])
-            data_odds_array_global = data_global[common_columns_global].to_numpy()
-            diff_sums_global = np.nansum(np.abs(data_odds_array_global - api_odds_array_global) / np.maximum(np.abs(data_odds_array_global), np.abs(api_odds_array_global)), axis=1)
-            similarity_percents_global = (1 - diff_sums_global / len(common_columns_global)) * 100
-            
-            similarities_global = []
-            min_odds_count = len(api_odds) * 0.5 if row["İY/MS"] == "Var" else 0
-            for i, sim_percent in enumerate(similarity_percents_global):
-                if np.isnan(sim_percent):
+            if sov is not None:
+                try:
+                    if float(market.get("SOV", 0)) != float(sov):
+                        continue
+                except Exception:
                     continue
-                data_row = data_global.iloc[i]
-                if data_row["Lig Adı"] == api_league:
-                    continue
-                match_odds_count = sum(1 for col in excel_columns if col in data_row and pd.notna(data_row[col]))
-                if row["İY/MS"] == "Var" and match_odds_count < min_odds_count:
-                    continue
-                similarities_global.append({
-                    "similarity_diff": diff_sums_global[i],
-                    "similarity_percent": sim_percent,
-                    "data_row": data_row,
-                    "odds_count": match_odds_count
-                })
-            
-            similarities_global.sort(key=lambda x: x["similarity_diff"])
-            top_global_matches = similarities_global[:5]
-            
-            for match in top_global_matches:
-                data_row = match["data_row"]
-                match_info = {
-                    "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
-                    "İY/MS": "",
-                    "Oran Sayısı": f"{match['odds_count']}/{len(excel_columns)}",
-                    "Korner Ort.": "",
-                    "Saat": "",
-                    "Tarih": str(data_row.get("Tarih", "")),
-                    "Ev Sahibi Takım": str(data_row.get("Ev Sahibi Takım", "")),
-                    "Deplasman Takım": str(data_row.get("Deplasman Takım", "")),
-                    "Lig Adı": str(data_row.get("Lig Adı", "")),
-                    "IY KG ORAN": "",
-                    "IY SKOR": str(data_row.get("IY SKOR", "")),
-                    "MS SKOR": str(data_row.get("MS SKOR", ""))
-                }
-                for col in data.columns:
-                    if col not in match_info:
-                        match_info[col] = str(data_row.get(col, ""))
-                output_rows.append(match_info)
-        
-        output_rows.append({})
-    
-    with status_placeholder.container():
-        status_placeholder.write(f"Analiz tamamlandı, {len([r for r in output_rows if r])} satır bulundu.")
-        time.sleep(0.1)
-    return output_rows
+            for oca in market.get("OCA", []):
+                if str(oca.get("N")) == str(oca_key):
+                    return oca.get("O")
+        return None
 
-# Zaman aralığı seçimi
-st.subheader("Analiz için Saat Aralığı")
-default_start = datetime.now(timezone(timedelta(hours=3))) + timedelta(minutes=5)
-st.write(f"Başlangıç Saati: {default_start.strftime('%d.%m.%Y %H:%M')} (Otomatik, şu an + 5 dakika)")
+    for display_name, info in rules.items():
+        if display_name not in reverse_mapping:
+            continue
+        mtid = reverse_mapping[display_name]["mtid"]
+        sov  = reverse_mapping[display_name]["sov"]
+        oca_key = reverse_mapping[display_name]["oca_key"]
 
-end_date = st.date_input("Bitiş Tarihi", value=datetime.now().date())
-end_time = st.time_input("Bitiş Saati", value=None)
+        # API'de bu market var mı?
+        market_available = any(
+            (mrk.get("MTID") == mtid) and ((sov is None) or (str(mrk.get("SOV")) == str(sov)))
+            for mrk in api_row.get("MA", [])
+        )
+        if not market_available:
+            continue
 
-# Analize başla butonu
-if st.button("Analize Başla", disabled=st.session_state.analysis_done):
-    if end_time is None:
-        st.error("Lütfen bitiş saati seçin!")
-        st.stop()
-    
+        # yüzdelik
+        count_true = sum(1 for s in similars if info["func"](s["row"]))
+        pct = (count_true / total) * 100.0
+        if pct < pred_threshold:
+            continue
+
+        odds = find_market_odds(api_row, mtid, sov, oca_key)
+        if odds is not None:
+            try:
+                predictions.append(f"{display_name}: {pct:.1f}% (Oran {float(odds):.2f})")
+            except Exception:
+                predictions.append(f"{display_name}: {pct:.1f}% (Oran {odds})")
+        else:
+            predictions.append(f"{display_name}: {pct:.1f}%")
+
+    return pred_iy, pred_ms, predictions
+
+# ============================================
+# UI & Akış
+# ============================================
+st.set_page_config(page_title="Bülten Analiz (v26 mantığı)", layout="wide")
+
+st.title("Bülten Analiz – v26 benzerlik & tahmin")
+
+with st.sidebar:
+    st.subheader("Veri Kaynakları")
+    league_url = st.text_input("league_mapping.json URL", DEFAULT_LEAGUE_JSON_URL)
+    mtid_url   = st.text_input("mtid_mapping.json URL",   DEFAULT_MTID_JSON_URL)
+    excel_url  = st.text_input("matches.xlsx (Google Sheets) URL", DEFAULT_MATCHES_XLSX_URL)
+
+    st.subheader("Filtreler")
+    today = datetime.now(IST).date()
+    start_date = st.date_input("Başlangıç Tarihi", today)
+    end_date   = st.date_input("Bitiş Tarihi", today + timedelta(days=2))
+    start_time = st.time_input("Başlangıç Saati", datetime.now(IST).time())
+    end_time   = st.time_input("Bitiş Saati", (datetime.now(IST) + timedelta(hours=6)).time())
+
+    st.subheader("Benzerlik Parametreleri")
+    top_k = st.slider("Top-K benzer maç sayısı", 5, 50, 25, step=1)
+    majority_ratio = st.slider("Skor tahmini için çoğunluk eşiği (%)", 50, 90, 65, step=5) / 100.0
+    pred_threshold = st.slider("Tahmin üretim eşiği (%)", 60, 100, 80, step=5)
+
+# Yüklemeler
+try:
+    league_mapping, mtid_mapping, reverse_mapping = load_mappings(league_url, mtid_url)
+    df_hist = load_matches_excel(excel_url)
+except Exception as e:
+    st.error(f"Kaynaklar yüklenemedi: {e}")
+    st.stop()
+
+# API verisi
+api_df = fetch_api_data(league_mapping, mtid_mapping)
+if api_df.empty:
+    st.warning("API verisi boş döndü.")
+    st.stop()
+
+# Tarih/Saat filtre
+def to_dt(dmy_str, hm_str):
     try:
-        with st.spinner("Analiz başladı..."):
-            # Bitiş zamanını oluştur
-            end_datetime = datetime.combine(end_date, end_time).replace(tzinfo=timezone(timedelta(hours=3)))
-            start_datetime = default_start
-            
-            if end_datetime <= start_datetime:
-                st.error("Bitiş saati başlangıç saatinden önce olamaz!")
-                st.stop()
-            
-            status_placeholder.write("Geçmiş maç verileri indiriliyor...")
-            time.sleep(0.1)
-            file_id = "11m7tX2xCavCM_cij69UaSVijFuFQbveM"
-            download(f"https://drive.google.com/uc?id={file_id}", "matches.xlsx", quiet=False)
-            
-            status_placeholder.write("Bahisler kontrol ediliyor...")
-            time.sleep(0.1)
-            excel_columns_basic = [
-                "Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY SKOR", "MS SKOR",
-                "EV KORNER", "DEP KORNER"
-            ] + excel_columns
-            data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", dtype=str)
-            
-            data_columns_lower = [col.lower().strip() for col in data.columns]
-            excel_columns_lower = [col.lower().strip() for col in excel_columns_basic]
-            available_columns = [data.columns[i] for i, col in enumerate(data_columns_lower) if col in excel_columns_lower]
-            missing_columns = [col for col in excel_columns_basic if col.lower().strip() not in data_columns_lower]
-            
-            status_placeholder.write(f"Bahis isimleri: {', '.join(data.columns)}")
-            if missing_columns:
-                st.warning(f"Eksik sütunlar: {', '.join(missing_columns)}. Mevcut sütunlarla devam ediliyor.")
-            
-            status_placeholder.write("Maç verileri yükleniyor...")
-            time.sleep(0.1)
-            data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", usecols=available_columns, dtype=str)
-            
-            if "Tarih" not in data.columns:
-                st.error("Hata: 'Tarih' sütunu bulunamadı. Lütfen matches.xlsx dosyasını kontrol edin.")
-                st.stop()
-            
-            if "Tarih" in data.columns:
-                tarih_samples = data["Tarih"].head(5).tolist()
-                status_placeholder.write(f"İlk 5 Tarih örneği: {tarih_samples}")
-                time.sleep(0.1)
-            
-            status_placeholder.write("Tarih string olarak alındı...")
-            time.sleep(0.1)
-            
-            for col in excel_columns:
-                if col in data.columns:
-                    data[col] = pd.to_numeric(data[col], errors='coerce')
-                    data.loc[:, col] = data[col].where(data[col] > 1.0, np.nan)
-            for col in ["EV KORNER", "DEP KORNER"]:
-                if col in data.columns:
-                    data[col] = pd.to_numeric(data[col], errors='coerce')
-            st.session_state.data = data
-            
-            status_placeholder.write("Bülten verisi çekiliyor...")
-            time.sleep(0.1)
-            match_list, raw_data = fetch_api_data()
-            if not match_list:
-                st.error(f"Bülten verisi alınamadı. Hata: {raw_data.get('error', 'Bilinmeyen hata')}")
-                st.stop()
-            
-            api_df = process_api_data(match_list, raw_data, start_datetime, end_datetime)
-            
-            # Debug logları
-            st.write(f"Bültenden çekilen maç sayısı: {len(match_list)}")
-            st.write(f"İşlenen maçlar: {len(api_df)}")
-            if not api_df.empty:
-                output_rows = find_similar_matches(api_df, data)
-            if not output_rows:
-                st.error("Eşleşme bulunamadı. Lütfen verileri kontrol edin.")
-                st.stop()
-            
-            iyms_rows = []
-            main_rows = []
-            current_group = []
-            is_iyms = False
-            for row in output_rows:
-                if not row:
-                    if current_group:
-                        if is_iyms:
-                            iyms_rows.extend(current_group)
-                            iyms_rows.append({})
-                        else:
-                            main_rows.extend(current_group)
-                            main_rows.append({})
-                    current_group = []
-                    continue
-                if row.get("Benzerlik (%)") == "":
-                    if current_group:
-                        if is_iyms:
-                            iyms_rows.extend(current_group)
-                        else:
-                            main_rows.extend(current_group)
-                    current_group = [row]
-                    is_iyms = row.get("İY/MS") == "Var"
-                else:
-                    current_group.append(row)
-            if current_group:
-                if is_iyms:
-                    iyms_rows.extend(current_group)
-                else:
-                    main_rows.extend(current_group)
-            
-            columns = ["Benzerlik (%)", "İY/MS", "Oran Sayısı", "Korner Ort.", "Saat", "Tarih", "Lig Adı", "Ev Sahibi Takım", "Deplasman Takım", "IY KG ORAN", "IY SKOR", "MS SKOR"]
-            iyms_df = pd.DataFrame([r for r in iyms_rows if r], columns=columns)
-            main_df = pd.DataFrame([r for r in main_rows if r], columns=columns)
-            
-            st.session_state.iyms_df = iyms_df
-            st.session_state.main_df = main_df
-            st.session_state.output_rows = output_rows
-            st.session_state.analysis_done = True
-            
-            st.success("Analiz tamamlandı!")
-    
-    except Exception as e:
-        st.error(f"Hata oluştu: {str(e)}")
-        st.stop()
+        return datetime.strptime(f"{dmy_str} {hm_str}", "%d.%m.%Y %H:%M").replace(tzinfo=IST)
+    except Exception:
+        return None
 
-# Display results if analysis is done
-if st.session_state.analysis_done and st.session_state.iyms_df is not None:
-    status_placeholder.empty()
-    tab1, tab2 = st.tabs(["İY/MS Bülteni", "Normal Bülten"])
-    with tab1:
-        st.dataframe(
-            style_dataframe(st.session_state.iyms_df, st.session_state.output_rows),
-            height=600,
-            use_container_width=True,
-        )
-    with tab2:
-        st.dataframe(
-            style_dataframe(st.session_state.main_df, st.session_state.output_rows),
-            height=600,
-            use_container_width=True,
-        )
+start_dt = datetime.combine(start_date, start_time).replace(tzinfo=IST)
+end_dt   = datetime.combine(end_date,   end_time).replace(tzinfo=IST)
+
+api_df = api_df[api_df["match_datetime"].between(start_dt, end_dt)].copy()
+if api_df.empty:
+    st.info("Seçilen aralıkta maç bulunamadı.")
+    st.stop()
+
+# Çıktı satırları
+output_rows = []
+progress = st.progress(0)
+for i, (_, api_row) in enumerate(api_df.iterrows(), start=1):
+    similars = find_similar_matches(api_row, df_hist, top_k=top_k)
+    pred_iy, pred_ms, preds = predict_scores_and_markets(api_row, similars, reverse_mapping, min_majority_ratio=majority_ratio, pred_threshold=pred_threshold)
+    similarity_best = max((s["similarity"] for s in similars), default=0.0)
+
+    out = {
+        "Benzerlik (%)": round(float(similarity_best), 1),
+        "Saat": api_row.get("Saat", ""),
+        "Tarih": api_row.get("Tarih", ""),
+        "Ev Sahibi Takım": api_row.get("Ev Sahibi Takım", ""),
+        "Deplasman Takım": api_row.get("Deplasman Takım", ""),
+        "Lig Adı": api_row.get("Lig Adı", ""),
+        "IY SKOR": pred_iy,
+        "MS SKOR": pred_ms,
+        "Tahmin": " | ".join(preds[:2]) if preds else ""
+    }
+    output_rows.append(out)
+    progress.progress(i / len(api_df))
+
+result_df = pd.DataFrame(output_rows)
+# Sıralama: yüksek benzerlik
+if not result_df.empty:
+    result_df.sort_values(by=["Benzerlik (%)", "Tarih", "Saat"], ascending=[False, True, True], inplace=True)
+    # Görselleştir
+    st.dataframe(result_df.reset_index(drop=True), hide_index=True, use_container_width=True)
+else:
+    st.info("Çıkış üretilemedi.")
