@@ -908,7 +908,7 @@ def style_dataframe(df):
     # Grup başlıklarını (Benzerlik boş) farklı renkte gösterelim
     def style_row(row):
         if row["Benzerlik (%)"] == "":
-            return ['background-color: #b3e5fc'] * len(row)
+            return ['background-color: #02a7f2'] * len(row)
         return [''] * len(row)
 
     styler = df.style.apply(style_row, axis=1)
@@ -943,7 +943,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
     try:
         with st.spinner("Analiz başladı..."):
             # JSON mappings
-            status_placeholder.write("JSON eşleşmeleri yükleniyor...")
+            status_placeholder.write("Bahis kodları yükleniyor...")
             if not load_json_mappings():
                 st.error("JSON mappingler yüklenemedi!")
                 st.stop()
@@ -959,7 +959,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             time.sleep(0.05)
             download(f"https://drive.google.com/uc?id={EXCEL_FILE_ID}", "matches.xlsx", quiet=False)
 
-            status_placeholder.write("Excel verisi yükleniyor...")
+            status_placeholder.write("Benzer oranlı maçlar yükleniyor...")
             time.sleep(0.05)
             data = pd.read_excel("matches.xlsx", sheet_name="Bahisler", dtype=str)
 
