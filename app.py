@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -790,4 +789,3 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
             height=600,
             use_container_width=True,
         )
-```
