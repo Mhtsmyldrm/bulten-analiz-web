@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,7 +6,6 @@ import requests
 from datetime import datetime, timedelta
 from gdown import download
 from collections import Counter
-import difflib
 import json
 import math
 from datetime import timezone
@@ -154,7 +154,7 @@ prediction_criteria = {
         "mtid": 328,
         "sov": 2.50,
         "oca_key": "2",
-        "column_name": "Deplasman 2,5 Alt/Üst Üst"
+        "column_name": "DeKaren, Deplasman 2,5 Alt/Üst Üst"
     }
 }
 
@@ -687,7 +687,7 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             data_columns_lower = [col.lower().strip() for col in data.columns]
             excel_columns_lower = [col.lower().strip() for col in excel_columns_basic]
             available_columns = [data.columns[i] for i, col in enumerate(data_columns_lower) if col in excel_columns_lower]
-            missing_columns. = [col for col in excel_columns_basic if col.lower().strip() not in data_columns_lower]
+            missing_columns = [col for col in excel_columns_basic if col.lower().strip() not in data_columns_lower]
             
             status_placeholder.write(f"Bahis isimleri: {', '.join(data.columns)}")
             if missing_columns:
@@ -790,3 +790,4 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
             height=600,
             use_container_width=True,
         )
+```
