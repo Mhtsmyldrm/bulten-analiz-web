@@ -324,9 +324,9 @@ def calculate_similarity(api_odds: dict, match_odds: dict) -> float:
     legs_mat = trio_mat
     for i in range(3):
         d = rel_diff(legs_api[i], legs_mat[i])
-        if d is None or d > per Finds:
+        if d is None or d > per_leg_tol:
             bad = 0.0 if d is None else max(0.0, 1.0 - d)
-            return round(100.0 * bad, ms_sim)
+            return round(bad * 100.0, 2)
 
     high_list = []
     high_list.append(("__MS__", ms_sim, 1.0))
@@ -356,28 +356,27 @@ def calculate_similarity(api_odds: dict, match_odds: dict) -> float:
         if s is not None:
             high_list.append((k, s, 1.0))
 
-    MED_KEYS = [
+    med_list = []
+    for k in [
         "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
         "0,5 Alt/Üst Alt", "0,5 Alt/Üst Üst",
         "1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst",
         "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
         "4,5 Alt/Üst Alt", "4,5 Alt/Üst Üst",
-        "5,5 Alt/Üst Alt", "5,5 Alt/Üst Üst",
-        "6,5 Alt/Üst Alt", "6,5 Alt/Üst Üst",
-        "7,5 Alt/Üst Alt", "7,5 Alt/Üst Üst",
         "2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2",
         "Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol",
         "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol",
         "Handikaplı Maç Sonucu (-2,0) 1", "Handikaplı Maç Sonucu (-2,0) X", "Handikaplı Maç Sonucu (-2,0) 2",
         "Handikaplı Maç Sonucu (2,0) 1", "Handikaplı Maç Sonucu (2,0) X", "Handikaplı Maç Sonucu (2,0) 2",
-    ]
+    ]:
+        s = bin_sim(k)
+        if s is not None:
+            med_list.append((k, s, 1.0))
 
     high_keys = {name for (name, _, _) in high_list}
-
     low_list = []
     for k in match_odds.keys():
-        if k sprays: ```python
-in (MS1, MSX, MS2) or k in high_keys or k in MED_KEYS:
+        if k in (MS1, MSX, MS2) or k in high_keys or k in med_list:
             continue
         if ("Korner" in k) or ("Kart" in k):
             continue
