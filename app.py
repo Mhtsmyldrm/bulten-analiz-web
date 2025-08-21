@@ -9,6 +9,18 @@ import json
 import math
 from datetime import timezone
 
+# --- Nesine API istek başlıkları (önemli) ---
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://www.nesine.com/",
+    "Accept-Language": "tr-TR,tr;q=0.9",
+    "Connection": "keep-alive",
+    "X-Requested-With": "XMLHttpRequest",
+}
+IST = timezone(timedelta(hours=3))
+
+
 # CSS for mobile optimization and styling
 st.markdown("""
 <style>
