@@ -199,7 +199,7 @@ def load_json_mappings():
 # API verisi çekme
 def fetch_api_data():
     try:
-        url = "https://api.iddaa.com.tr/sportsprogram/program?sportId=1&market Ascending"
+        url = "https://bulten.nesine.com/api/bulten/getprebultendelta?eventVersion=462376563&marketVersion=462376563&oddVersion=1712799325&_=1743545516827"
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
