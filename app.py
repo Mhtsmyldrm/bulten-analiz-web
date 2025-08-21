@@ -271,9 +271,8 @@ def calculate_similarity(api_odds: dict, match_odds: dict) -> float:
 # PREDICTION CRITERIA
 # ==============================
 prediction_criteria = {
-    # MS
     "Maç Sonucu 1": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) >  int(r["MS SKOR"].split("-")[1]),
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]),
         "mtid": 1, "sov": None, "oca_key": "1", "column_name": "Maç Sonucu 1",
     },
     "Maç Sonucu X": {
@@ -281,13 +280,34 @@ prediction_criteria = {
         "mtid": 1, "sov": None, "oca_key": "2", "column_name": "Maç Sonucu X",
     },
     "Maç Sonucu 2": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) <  int(r["MS SKOR"].split("-")[1]),
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]),
         "mtid": 1, "sov": None, "oca_key": "3", "column_name": "Maç Sonucu 2",
     },
 
-    # IY
+    "İlk Yarı Karşılıklı Gol Var": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > 0 and int(r["IY SKOR"].split("-")[1]) > 0,
+        "mtid": 452, "sov": None, "oca_key": "1", "column_name": "Karşılıklı Gol Var",
+    },
+    "İlk Yarı 0,5 Gol Üst": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and sum(map(int, r["IY SKOR"].split("-"))) > 0,
+        "mtid": 209, "sov": 0.50, "oca_key": "2", "column_name": "1. Yarı 0,5 Alt/Üst Üst",
+    },
+    "İlk Yarı 1,5 Gol Üst": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and sum(map(int, r["IY SKOR"].split("-"))) > 1,
+        "mtid": 14, "sov": 1.50, "oca_key": "2", "column_name": "1. Yarı 1,5 Alt/Üst Üst",
+    },
+
+    "Toplam Gol 2,5 Gol Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and sum(map(int, r["MS SKOR"].split("-"))) > 2,
+        "mtid": 12, "sov": 2.50, "oca_key": "2", "column_name": "2,5 Alt/Üst Üst",
+    },
+    "Toplam Gol 2,5 Gol Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and sum(map(int, r["MS SKOR"].split("-"))) < 3,
+        "mtid": 12, "sov": 2.50, "oca_key": "1", "column_name": "2,5 Alt/Üst Alt",
+    },
+
     "1. Yarı Sonucu 1": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) >  int(r["IY SKOR"].split("-")[1]),
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]),
         "mtid": 7, "sov": None, "oca_key": "1", "column_name": "1. Yarı Sonucu 1",
     },
     "1. Yarı Sonucu X": {
@@ -295,26 +315,304 @@ prediction_criteria = {
         "mtid": 7, "sov": None, "oca_key": "2", "column_name": "1. Yarı Sonucu X",
     },
     "1. Yarı Sonucu 2": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) <  int(r["IY SKOR"].split("-")[1]),
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]),
         "mtid": 7, "sov": None, "oca_key": "3", "column_name": "1. Yarı Sonucu 2",
     },
 
-    # O/U
-    "Toplam Gol 2,5 Gol Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and (int(r["MS SKOR"].split("-")[0]) + int(r["MS SKOR"].split("-")[1])) > 2,
-        "mtid": 12, "sov": 2.50, "oca_key": "2", "column_name": "2,5 Alt/Üst Üst",
+    "Handikaplı Maç Sonucu (-1,0) 1": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) >= int(r["MS SKOR"].split("-")[1]) + 2,
+        "mtid": 268, "sov": -1.0, "oca_key": "1",
+        "column_name": "Handikaplı Maç Sonucu (-1,0) 1",
+        "display_name": "Handikaplı Maç Sonucu (0,1) 1",
     },
-    "Toplam Gol 2,5 Gol Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and (int(r["MS SKOR"].split("-")[0]) + int(r["MS SKOR"].split("-")[1])) < 3,
-        "mtid": 12, "sov": 2.50, "oca_key": "1", "column_name": "2,5 Alt/Üst Alt",
+    "Handikaplı Maç Sonucu (-1,0) X": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) + 1,
+        "mtid": 268, "sov": -1.0, "oca_key": "2",
+        "column_name": "Handikaplı Maç Sonucu (-1,0) X",
+        "display_name": "Handikaplı Maç Sonucu (0,1) X",
     },
-    "İlk Yarı 0,5 Gol Üst": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and (int(r["IY SKOR"].split("-")[0]) + int(r["IY SKOR"].split("-")[1])) > 0,
-        "mtid": 209, "sov": 0.50, "oca_key": "2", "column_name": "1. Yarı 0,5 Alt/Üst Üst",
+    "Handikaplı Maç Sonucu (-1,0) 2": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) <= int(r["MS SKOR"].split("-")[1]),
+        "mtid": 268, "sov": -1.0, "oca_key": "3",
+        "column_name": "Handikaplı Maç Sonucu (-1,0) 2",
+        "display_name": "Handikaplı Maç Sonucu (0,1) 2",
     },
-    "İlk Yarı 1,5 Gol Üst": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and (int(r["IY SKOR"].split("-")[0]) + int(r["IY SKOR"].split("-")[1])) > 1,
-        "mtid": 14, "sov": 1.50, "oca_key": "2", "column_name": "1. Yarı 1,5 Alt/Üst Üst",
+
+    "Handikaplı Maç Sonucu (1,0) 1": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) >= int(r["MS SKOR"].split("-")[1]),
+        "mtid": 268, "sov": 1.0, "oca_key": "1", "column_name": "Handikaplı Maç Sonucu (1,0) 1",
+    },
+    "Handikaplı Maç Sonucu (1,0) X": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) == int(r["MS SKOR"].split("-")[0]) + 1,
+        "mtid": 268, "sov": 1.0, "oca_key": "2", "column_name": "Handikaplı Maç Sonucu (1,0) X",
+    },
+    "Handikaplı Maç Sonucu (1,0) 2": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) >= int(r["MS SKOR"].split("-")[0]) + 2,
+        "mtid": 268, "sov": 1.0, "oca_key": "3", "column_name": "Handikaplı Maç Sonucu (1,0) 2",
+    },
+
+    "İlk Yarı/Maç Sonucu 1/1": {
+        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]),
+        "mtid": 5, "sov": None, "oca_key": "1", "column_name": "İlk Yarı/Maç Sonucu 1/1",
+    },
+    "İlk Yarı/Maç Sonucu 1/X": {
+        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]),
+        "mtid": 5, "sov": None, "oca_key": "2", "column_name": "İlk Yarı/Maç Sonucu 1/X",
+    },
+    "İlk Yarı/Maç Sonucu 1/2": {
+        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]),
+        "mtid": 5, "sov": None, "oca_key": "3", "column_name": "İlk Yarı/Maç Sonucu 1/2",
+    },
+    "İlk Yarı/Maç Sonucu X/1": {
+        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]),
+        "mtid": 5, "sov": None, "oca_key": "4", "column_name": "İlk Yarı/Maç Sonucu X/1",
+    },
+    "İlk Yarı/Maç Sonucu X/X": {
+        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]),
+        "mtid": 5, "sov": None, "oca_key": "5", "column_name": "İlk Yarı/Maç Sonucu X/X",
+    },
+    "İlk Yarı/Maç Sonucu X/2": {
+        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]),
+        "mtid": 5, "sov": None, "oca_key": "6", "column_name": "İlk Yarı/Maç Sonucu X/2",
+    },
+    "İlk Yarı/Maç Sonucu 2/1": {
+        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]),
+        "mtid": 5, "sov": None, "oca_key": "7", "column_name": "İlk Yarı/Maç Sonucu 2/1",
+    },
+    "İlk Yarı/Maç Sonucu 2/X": {
+        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]),
+        "mtid": 5, "sov": None, "oca_key": "8", "column_name": "İlk Yarı/Maç Sonucu 2/X",
+    },
+    "İlk Yarı/Maç Sonucu 2/2": {
+        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]),
+        "mtid": 5, "sov": None, "oca_key": "9", "column_name": "İlk Yarı/Maç Sonucu 2/2",
+    },
+
+    "Maç Sonucu 1 ve 1,5 Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 2,
+        "mtid": 342, "sov": 1.50, "oca_key": "1", "column_name": "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt",
+    },
+    "Maç Sonucu X ve 1,5 Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 2,
+        "mtid": 342, "sov": 1.50, "oca_key": "2", "column_name": "Maç Sonucu ve (1,5) Alt/Üst X ve Alt",
+    },
+    "Maç Sonucu 2 ve 1,5 Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 2,
+        "mtid": 342, "sov": 1.50, "oca_key": "3", "column_name": "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
+    },
+    "Maç Sonucu 1 ve 1,5 Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 1,
+        "mtid": 342, "sov": 1.50, "oca_key": "4", "column_name": "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst",
+    },
+    "Maç Sonucu X ve 1,5 Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 1,
+        "mtid": 342, "sov": 1.50, "oca_key": "5", "column_name": "Maç Sonucu ve (1,5) Alt/Üst X ve Üst",
+    },
+    "Maç Sonucu 2 ve 1,5 Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 1,
+        "mtid": 342, "sov": 1.50, "oca_key": "6", "column_name": "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst",
+    },
+
+    "Maç Sonucu 1 ve 2,5 Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 3,
+        "mtid": 343, "sov": 2.50, "oca_key": "1", "column_name": "Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt",
+    },
+    "Maç Sonucu X ve 2,5 Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 3,
+        "mtid": 343, "sov": 2.50, "oca_key": "2", "column_name": "Maç Sonucu ve (2,5) Alt/Üst X ve Alt",
+    },
+    "Maç Sonucu 2 ve 2,5 Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 3,
+        "mtid": 343, "sov": 2.50, "oca_key": "3", "column_name": "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
+    },
+    "Maç Sonucu 1 ve 2,5 Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 2,
+        "mtid": 343, "sov": 2.50, "oca_key": "4", "column_name": "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst",
+    },
+    "Maç Sonucu X ve 2,5 Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 2,
+        "mtid": 343, "sov": 2.50, "oca_key": "5", "column_name": "Maç Sonucu ve (2,5) Alt/Üst X ve Üst",
+    },
+    "Maç Sonucu 2 ve 2,5 Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 2,
+        "mtid": 343, "sov": 2.50, "oca_key": "6", "column_name": "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst",
+    },
+
+    "Maç Sonucu 1 ve 3,5 Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 4,
+        "mtid": 272, "sov": 3.50, "oca_key": "1", "column_name": "Maç Sonucu ve (3,5) Alt/Üst 1 ve Alt",
+    },
+    "Maç Sonucu X ve 3,5 Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 4,
+        "mtid": 272, "sov": 3.50, "oca_key": "2", "column_name": "Maç Sonucu ve (3,5) Alt/Üst X ve Alt",
+    },
+    "Maç Sonucu 2 ve 3,5 Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 4,
+        "mtid": 272, "sov": 3.50, "oca_key": "3", "column_name": "Maç Sonucu ve (3,5) Alt/Üst 2 ve Alt",
+    },
+    "Maç Sonucu 1 ve 3,5 Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 3,
+        "mtid": 272, "sov": 3.50, "oca_key": "4", "column_name": "Maç Sonucu ve (3,5) Alt/Üst 1 ve Üst",
+    },
+    "Maç Sonucu X ve 3,5 Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 3,
+        "mtid": 272, "sov": 3.50, "oca_key": "5", "column_name": "Maç Sonucu ve (3,5) Alt/Üst X ve Üst",
+    },
+    "Maç Sonucu 2 ve 3,5 Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 3,
+        "mtid": 272, "sov": 3.50, "oca_key": "6", "column_name": "Maç Sonucu ve (3,5) Alt/Üst 2 ve Üst",
+    },
+
+    "Maç Sonucu 1 ve KG Var": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > 0 and int(r["MS SKOR"].split("-")[1]) > 0,
+        "mtid": 414, "sov": None, "oca_key": "1", "column_name": "Maç Sonucu 1 ve KG Var",
+    },
+    "Maç Sonucu X ve KG Var": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > 0 and int(r["MS SKOR"].split("-")[1]) > 0,
+        "mtid": 414, "sov": None, "oca_key": "3", "column_name": "Maç Sonucu X ve KG Var",
+    },
+    "Maç Sonucu 2 ve KG Var": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > 0 and int(r["MS SKOR"].split("-")[1]) > 0,
+        "mtid": 414, "sov": None, "oca_key": "5", "column_name": "Maç Sonucu 2 ve KG Var",
+    },
+    "Maç Sonucu 1 ve KG Yok": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[1]) == 0,
+        "mtid": 414, "sov": None, "oca_key": "2", "column_name": "Maç Sonucu 1 ve KG Yok",
+    },
+    "Maç Sonucu X ve KG Yok": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) == 0 and int(r["MS SKOR"].split("-")[1]) == 0,
+        "mtid": 414, "sov": None, "oca_key": "4", "column_name": "Maç Sonucu X ve KG Yok",
+    },
+    "Maç Sonucu 2 ve KG Yok": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == 0 and int(r["MS SKOR"].split("-")[1]) > 0,
+        "mtid": 414, "sov": None, "oca_key": "6", "column_name": "Maç Sonucu 2 ve KG Yok",
+    },
+
+    "1.Y Sonucu 1 ve 1.Y 1,5 Alt": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) < 2,
+        "mtid": 459, "sov": 1.50, "oca_key": "1", "column_name": "1.Y Sonucu 1 ve 1.Y 1,5 Alt",
+    },
+    "1.Y Sonucu X ve 1.Y 1,5 Alt": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) < 2,
+        "mtid": 459, "sov": 1.50, "oca_key": "2", "column_name": "1.Y Sonucu X ve 1.Y 1,5 Alt",
+    },
+    "1.Y Sonucu 2 ve 1.Y 1,5 Alt": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) < 2,
+        "mtid": 459, "sov": 1.50, "oca_key": "3", "column_name": "1.Y Sonucu 2 ve 1.Y 1,5 Alt",
+    },
+    "1.Y Sonucu 1 ve 1.Y 1,5 Üst": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) > 1,
+        "mtid": 459, "sov": 1.50, "oca_key": "4", "column_name": "1.Y Sonucu 1 ve 1.Y 1,5 Üst",
+    },
+    "1.Y Sonucu X ve 1.Y 1,5 Üst": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) > 1,
+        "mtid": 459, "sov": 1.50, "oca_key": "5", "column_name": "1.Y Sonucu X ve 1.Y 1,5 Üst",
+    },
+    "1.Y Sonucu 2 ve 1.Y 1,5 Üst": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) > 1,
+        "mtid": 459, "sov": 1.50, "oca_key": "6", "column_name": "1.Y Sonucu 2 ve 1.Y 1,5 Üst",
+    },
+
+    "1. Yarı Sonucu 1 ve 1. Yarı KG Var": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and int(r["IY SKOR"].split("-")[0]) > 0 and int(r["IY SKOR"].split("-")[1]) > 0,
+        "mtid": 416, "sov": None, "oca_key": "1", "column_name": "1. Yarı Sonucu 1 ve 1. Yarı KG Var",
+    },
+    "1. Yarı Sonucu X ve 1. Yarı KG Var": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and int(r["IY SKOR"].split("-")[0]) > 0 and int(r["IY SKOR"].split("-")[1]) > 0,
+        "mtid": 416, "sov": None, "oca_key": "3", "column_name": "1. Yarı Sonucu X ve 1. Yarı KG Var",
+    },
+    "1. Yarı Sonucu 2 ve 1. Yarı KG Var": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and int(r["IY SKOR"].split("-")[0]) > 0 and int(r["IY SKOR"].split("-")[1]) > 0,
+        "mtid": 416, "sov": None, "oca_key": "5", "column_name": "1. Yarı Sonucu 2 ve 1. Yarı KG Var",
+    },
+    "1. Yarı Sonucu 1 ve 1. Yarı KG Yok": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and (int(r["IY SKOR"].split("-")[0]) > 0) and (int(r["IY SKOR"].split("-")[1]) == 0),
+        "mtid": 416, "sov": None, "oca_key": "2", "column_name": "1. Yarı Sonucu 1 ve 1. Yarı KG Yok",
+    },
+    "1. Yarı Sonucu X ve 1. Yarı KG Yok": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and (int(r["IY SKOR"].split("-")[0]) == 0) and (int(r["IY SKOR"].split("-")[1]) == 0),
+        "mtid": 416, "sov": None, "oca_key": "4", "column_name": "1. Yarı Sonucu X ve 1. Yarı KG Yok",
+    },
+    "1. Yarı Sonucu 2 ve 1. Yarı KG Yok": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and (int(r["IY SKOR"].split("-")[0]) == 0) and (int(r["IY SKOR"].split("-")[1]) > 0),
+        "mtid": 416, "sov": None, "oca_key": "6", "column_name": "1. Yarı Sonucu 2 ve 1. Yarı KG Yok",
+    },
+
+    "2,5 Alt ve KG Var": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and sum(map(int, r["MS SKOR"].split("-"))) < 3 and int(r["MS SKOR"].split("-")[0]) > 0 and int(r["MS SKOR"].split("-")[1]) > 0,
+        "mtid": 446, "sov": 2.50, "oca_key": "1", "column_name": "2,5 Alt ve KG Var",
+    },
+    "2,5 Alt ve KG Yok": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and ((int(r["MS SKOR"].split("-")[0]) == 0 and sum(map(int, r["MS SKOR"].split("-"))) < 3) or (int(r["MS SKOR"].split("-")[1]) == 0 and sum(map(int, r["MS SKOR"].split("-"))) < 3)),
+        "mtid": 446, "sov": 2.50, "oca_key": "3", "column_name": "2,5 Alt ve KG Yok",
+    },
+    "2,5 Üst ve KG Var": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and sum(map(int, r["MS SKOR"].split("-"))) > 2 and int(r["MS SKOR"].split("-")[0]) > 0 and int(r["MS SKOR"].split("-")[1]) > 0,
+        "mtid": 446, "sov": 2.50, "oca_key": "2", "column_name": "2,5 Üst ve KG Var",
+    },
+    "2,5 Üst ve KG Yok": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and ((int(r["MS SKOR"].split("-")[0]) == 0 and sum(map(int, r["MS SKOR"].split("-"))) > 2) or (int(r["MS SKOR"].split("-")[1]) == 0 and sum(map(int, r["MS SKOR"].split("-"))) > 2)),
+        "mtid": 446, "sov": 2.50, "oca_key": "4", "column_name": "2,5 Üst ve KG Yok",
+    },
+
+    "2. Yarı KG Var": {
+        "func": lambda r: r.get("MS SKOR") and r.get("IY SKOR") and "-" in r["MS SKOR"] and "-" in r["IY SKOR"] and (int(r["MS SKOR"].split("-")[0]) - int(r["IY SKOR"].split("-")[0])) > 0 and (int(r["MS SKOR"].split("-")[1]) - int(r["IY SKOR"].split("-")[1])) > 0,
+        "mtid": 599, "sov": None, "oca_key": "1", "column_name": "2. Yarı KG Var",
+    },
+    "2. Yarı KG Yok": {
+        "func": lambda r: r.get("MS SKOR") and r.get("IY SKOR") and "-" in r["MS SKOR"] and "-" in r["IY SKOR"] and (((int(r["MS SKOR"].split("-")[0]) - int(r["IY SKOR"].split("-")[0])) == 0 and (int(r["MS SKOR"].split("-")[1]) - int(r["IY SKOR"].split("-")[1])) > 0) or ((int(r["MS SKOR"].split("-")[0]) - int(r["IY SKOR"].split("-")[0])) > 0 and (int(r["MS SKOR"].split("-")[1]) - int(r["IY SKOR"].split("-")[1])) == 0)),
+        "mtid": 599, "sov": None, "oca_key": "2", "column_name": "2. Yarı KG Yok",
+    },
+
+    "Ev Sahibi 1.Y 0,5 Gol Alt": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < 1,
+        "mtid": 455, "sov": 0.50, "oca_key": "1", "column_name": "Ev Sahibi 0,5 Alt/Üst Alt",
+    },
+    "Ev Sahibi 1.Y 0,5 Gol Üst": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > 0,
+        "mtid": 455, "sov": 0.50, "oca_key": "2", "column_name": "Ev Sahibi 0,5 Alt/Üst Üst",
+    },
+    "Deplasman 1.Y 0,5 Gol Alt": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[1]) < 1,
+        "mtid": 457, "sov": 0.50, "oca_key": "1", "column_name": "Deplasman 0,5 Alt/Üst Alt",
+    },
+    "Deplasman 1.Y 0,5 Gol Üst": {
+        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[1]) > 0,
+        "mtid": 457, "sov": 0.50, "oca_key": "2", "column_name": "Deplasman 0,5 Alt/Üst Üst",
+    },
+
+    "Ev Sahibi 1,5 Gol Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < 2,
+        "mtid": 20, "sov": 1.50, "oca_key": "1", "column_name": "Ev Sahibi 1,5 Alt/Üst Alt",
+    },
+    "Ev Sahibi 1,5 Gol Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > 1,
+        "mtid": 20, "sov": 1.50, "oca_key": "2", "column_name": "Ev Sahibi 1,5 Alt/Üst Üst",
+    },
+    "Ev Sahibi 2,5 Gol Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < 3,
+        "mtid": 326, "sov": 2.50, "oca_key": "1", "column_name": "Ev Sahibi 2,5 Alt/Üst Alt",
+    },
+    "Ev Sahibi 2,5 Gol Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > 2,
+        "mtid": 326, "sov": 2.50, "oca_key": "2", "column_name": "Ev Sahibi 2,5 Alt/Üst Üst",
+    },
+
+    "Deplasman 1,5 Gol Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) < 2,
+        "mtid": 29, "sov": 1.50, "oca_key": "1", "column_name": "Deplasman 1,5 Alt/Üst Alt",
+    },
+    "Deplasman 1,5 Gol Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) > 1,
+        "mtid": 29, "sov": 1.50, "oca_key": "2", "column_name": "Deplasman 1,5 Alt/Üst Üst",
+    },
+    "Deplasman 2,5 Gol Alt": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) < 3,
+        "mtid": 328, "sov": 2.50, "oca_key": "1", "column_name": "Deplasman 2,5 Alt/Üst Alt",
+    },
+    "Deplasman 2,5 Gol Üst": {
+        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) > 2,
+        "mtid": 328, "sov": 2.50, "oca_key": "2", "column_name": "Deplasman 2,5 Alt/Üst Üst",
     },
 }
 
@@ -607,12 +905,22 @@ def find_similar_matches(api_df, data):
 # DATAFRAME STYLING
 # ==============================
 def style_dataframe(df):
-    # Sadece grup başlıklarını (Benzerlik boş) farklı renkte gösterelim
+    # Grup başlıklarını (Benzerlik boş) farklı renkte gösterelim
     def style_row(row):
         if row["Benzerlik (%)"] == "":
             return ['background-color: #b3e5fc'] * len(row)
         return [''] * len(row)
-    return df.style.apply(style_row, axis=1)
+
+    styler = df.style.apply(style_row, axis=1)
+
+    # Tahmin sütunu: kırmızı + kalın + satır sonlarını koru (çok satır)
+    styler = styler.set_properties(
+        subset=["Tahmin"],
+        **{"color": "#D00000", "font-weight": "700", "white-space": "pre-wrap"}
+    )
+
+    return styler
+
 
 # ==============================
 # UI: TIME RANGE
@@ -736,7 +1044,7 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
     tab1, tab2 = st.tabs(["İY/MS Bülteni", "Normal Bülten"])
     with tab1:
         st.dataframe(
-            st.session_state.iyms_df,
+            style_dataframe(st.session_state.iyms_df),  # <— styler kullan
             use_container_width=True,
             height=620,
             column_config={
@@ -745,7 +1053,7 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
         )
     with tab2:
         st.dataframe(
-            st.session_state.main_df,
+            style_dataframe(st.session_state.main_df),  # <— styler kullan
             use_container_width=True,
             height=620,
             column_config={
