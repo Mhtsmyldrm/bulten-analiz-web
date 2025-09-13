@@ -1472,15 +1472,17 @@ if run_lga:
             return ['background-color: #dff7df'] * len(row)  # açık yeşil
         return [''] * len(row)
   
-    # 2) SİNYAL sekmesi
+    # 2) SİNYAL sekmesi  (KATEGORİ SONUNA BOŞ SATIR EKLEME)
     signal_rows = []
     for jname, rows in all_results.items():
+        # Bu kategorinin satırlarını biriktireceğiz
+        cat_rows = []
         for (mi, hit, total, odd, rsk) in sorted(rows, key=lambda x: x[0]["DT"]):
             key = f"{mi['Ev']} vs {mi['Dep']} - {mi['Tarih']} {mi['Saat']}"
             others = [j for j in matches_per_game.get(key, []) if j != jname]
             sig, sig_hit, sig_total = _signal_info(jname, others, signal_groups)
             if sig:
-                signal_rows.append({
+                cat_rows.append({
                     "Kategori": jname.replace(".json", ""),
                     "Tarih": mi["Tarih"],
                     "Saat": mi["Saat"],
@@ -1491,6 +1493,24 @@ if run_lga:
                     "Sinyal": f"{sig_hit}/{sig_total}",
                     "Oran": odd if odd is not None else "",
                 })
+    
+        # Kategori içinde en az bir satır varsa önce ekle, sonra 1 boş satır bırak
+        if cat_rows:
+            signal_rows.extend(cat_rows)
+            # ——— burada “bir satır boşluk” için tüm kolonları boş string yapıyoruz
+            signal_rows.append({
+                "Kategori": "",
+                "Tarih": "",
+                "Saat": "",
+                "Lig": "",
+                "Ev Sahibi": "",
+                "Deplasman": "",
+                "Eşleşen/Toplam": "",
+                "Sinyal": "",
+                "Oran": "",
+            })
+    
+    # DataFrame’i üret
     df_sinyal = pd.DataFrame(signal_rows)
 
     # 3) Per-JSON sekmeleri
