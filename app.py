@@ -1378,7 +1378,7 @@ with st.container(border=True):
     with colB:
         st.subheader("Bitiş")
         end_date = st.date_input("Bitiş Tarihi", value=default_end.date(), format="DD.MM.YYYY", key="lge_end_date")
-        end_time = st.time_input("Bitiş Saati (HH:mm)", value=default_end.time(), key="lge_end_time")
+        end_time = st.time_input("Bitiş Saati", value=default_end.time(), key="lge_end_time")
 
     run_lga = st.button("Analize Başla (Lige Göre)")
 
@@ -1465,6 +1465,13 @@ if run_lga:
             })
     df_genel = pd.DataFrame(genel_rows)
 
+    # === Genel sekmesi için satır boyama (Risk = Güvenli) ===
+    def _style_genel_rows(row: pd.Series):
+        # "Güvenli" olan satırları açık yeşil doldur
+        if row.get("Risk", "") == "Güvenli":
+            return ['background-color: #dff7df'] * len(row)  # açık yeşil
+        return [''] * len(row)
+  
     # 2) SİNYAL sekmesi
     signal_rows = []
     for jname, rows in all_results.items():
@@ -1497,6 +1504,7 @@ if run_lga:
         if df_genel.empty:
             st.info("Genel sayfasında gösterilecek satır bulunamadı.")
         else:
+            styled_genel = df_genel.style.apply(_style_genel_rows, axis=1)
             st.dataframe(df_genel, use_container_width=True, hide_index=True)
 
     with tabs[1]:
