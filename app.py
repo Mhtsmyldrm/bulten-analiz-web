@@ -1173,11 +1173,40 @@ def _get_signal_groups():
 # JSON ve Mapping'leri yükle
 # ------------------------------
 def _download_json_to_file(file_id: str, local_name: str) -> bool:
+    """
+    Google Drive'dan küçük JSON dosyalarını indirirken önce doğrudan
+    usercontent endpoint'ini dener, olmazsa gdown'a düşer.
+    """
+    import os
+
+    def _try_direct(url: str) -> bool:
+        try:
+            r = requests.get(url, headers=HEADERS_SAFE, timeout=30)
+            # Başarılı yanıt ve HTML hata sayfası değilse yaz
+            ct = r.headers.get("Content-Type", "")
+            if r.status_code == 200 and "text/html" not in ct.lower():
+                with open(local_name, "wb") as f:
+                    f.write(r.content)
+                return os.path.exists(local_name) and os.path.getsize(local_name) > 0
+            return False
+        except Exception:
+            return False
+
+    # 1) Doğrudan indirme URL'leri (önce usercontent, sonra uc)
+    urls = [
+        f"https://drive.usercontent.google.com/download?id={file_id}&export=download",
+        f"https://drive.google.com/uc?export=download&id={file_id}",
+    ]
+    for u in urls:
+        if _try_direct(u):
+            return True
+
+    # 2) Fallback: gdown
     try:
         download(f"https://drive.google.com/uc?id={file_id}", local_name, quiet=True)
-        return True
-    except Exception as e:
-        st.error(f"{local_name} indirilemedi: {e}")
+        return os.path.exists(local_name) and os.path.getsize(local_name) > 0
+    except Exception:
+        # Sessizce False döndür; üst katman uyarıyı zaten basıyor.
         return False
 
 def _load_json(path: str):
