@@ -1371,14 +1371,25 @@ with st.container(border=True):
     default_start = now_ist + timedelta(minutes=5)
     default_end   = default_start + timedelta(minutes=180)
 
+      # >>>>> SADECE İLK KEZ session_state'e defaultları yaz
+    if "lge_start_date" not in st.session_state:
+        st.session_state.lge_start_date = default_start.date()
+    if "lge_start_time" not in st.session_state:
+        st.session_state.lge_start_time = default_start.time()
+    if "lge_end_date" not in st.session_state:
+        st.session_state.lge_end_date = default_end.date()
+    if "lge_end_time" not in st.session_state:
+        st.session_state.lge_end_time = default_end.time()
+
     with colA:
         st.subheader("Analiz için Saat Aralığı")
-        start_date = st.date_input("Başlangıç Tarihi", value=default_start.date(), format="DD.MM.YYYY")
-        start_time = st.time_input("Başlangıç Saati", value=default_start.time())
+        start_date = st.date_input("Başlangıç Tarihi", format="DD.MM.YYYY", key="lge_start_date")
+        start_time = st.time_input("Başlangıç Saati", key="lge_start_time")
+    
     with colB:
         st.subheader("Bitiş")
-        end_date = st.date_input("Bitiş Tarihi", value=default_end.date(), format="DD.MM.YYYY", key="lge_end_date")
-        end_time = st.time_input("Bitiş Saati", value=default_end.time(), key="lge_end_time")
+        end_date = st.date_input("Bitiş Tarihi", format="DD.MM.YYYY", key="lge_end_date")
+        end_time = st.time_input("Bitiş Saati (HH:mm)", key="lge_end_time")
 
     run_lga = st.button("Analize Başla (Lige Göre)")
 
@@ -1404,8 +1415,9 @@ if run_lga:
         st.warning("API’den maç verisi alınamadı.")
         st.stop()
 
-    st_dt = datetime.combine(start_date, start_time).replace(tzinfo=IST_SAFE)
-    en_dt = datetime.combine(end_date,   end_time).replace(tzinfo=IST_SAFE)
+    st_dt = datetime.combine(st.session_state.lge_start_date, st.session_state.lge_start_time).replace(tzinfo=IST_SAFE)
+    en_dt = datetime.combine(st.session_state.lge_end_date,   st.session_state.lge_end_time).replace(tzinfo=IST_SAFE)
+
 
     status.info("Zaman filtresi uygulanıyor...")
     filtered = _filter_by_window(api_rows, st_dt, en_dt)
@@ -1467,9 +1479,14 @@ if run_lga:
 
     # === Genel sekmesi için satır boyama (Risk = Güvenli) ===
     def _style_genel_rows(row: pd.Series):
-        # "Güvenli" olan satırları açık yeşil doldur
-        if row.get("Risk", "") == "Güvenli":
-            return ['background-color: #dff7df'] * len(row)  # açık yeşil
+        # Kolon adın "Risk" de olabilir, "Risk Durumu" da — ikisine de bak
+        risk_val = row.get("Risk", None)
+        if risk_val is None:
+            risk_val = row.get("Risk Durumu", None)
+    
+        if isinstance(risk_val, str) and risk_val.strip().lower() == "güvenli":
+            # Açık yeşil dolgu
+            return ['background-color: #dff7df'] * len(row)
         return [''] * len(row)
   
     # 2) SİNYAL sekmesi  (KATEGORİ SONUNA BOŞ SATIR EKLEME)
@@ -1525,7 +1542,7 @@ if run_lga:
             st.info("Genel sayfasında gösterilecek satır bulunamadı.")
         else:
             styled_genel = df_genel.style.apply(_style_genel_rows, axis=1)
-            st.dataframe(df_genel, use_container_width=True, hide_index=True)
+            st.dataframe(styled_genel, use_container_width=True, hide_index=True)
 
     with tabs[1]:
         st.subheader("Sinyal")
