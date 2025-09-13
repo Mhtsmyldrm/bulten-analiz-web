@@ -1060,3 +1060,464 @@ if st.session_state.analysis_done and st.session_state.iyms_df is not None:
                 "Tahmin": st.column_config.TextColumn("Tahmin", width="large"),
             }
         )
+
+# ============================================================
+# LIGE GÖRE ANALIZ  —  EK BÖLÜM (ESKİ KODA DOKUNMA)
+# ============================================================
+import io
+from typing import Dict, Tuple, List
+
+st.markdown("---")
+st.header("Lige Göre Analiz")
+
+# ------------------------------
+# Yardımcı: Güvenli sabitleri al
+# ------------------------------
+def _safe_get_constants():
+    # Mevcut dosyadaki sabitleri kullan (varsa)
+    league_id  = globals().get("LEAGUE_MAPPING_ID", "1L8HA_emD92BJSuCn-P9GJF-hH55nIKE7")
+    mtid_id    = globals().get("MTID_MAPPING_ID",   "1N1PjFla683BYTAdzVDaajmcnmMB5wiiO")
+    headers    = globals().get("HEADERS", {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.nesine.com/",
+        "Accept-Language": "tr-TR,tr;q=0.9",
+        "Connection": "keep-alive",
+        "X-Requested-With": "XMLHttpRequest",
+    })
+    ist       = globals().get("IST", timezone(timedelta(hours=3)))
+    return league_id, mtid_id, headers, ist
+
+LEAGUE_MAPPING_ID_SAFE, MTID_MAPPING_ID_SAFE, HEADERS_SAFE, IST_SAFE = _safe_get_constants()
+
+# ------------------------------
+# Analiz JSON linkleri (senin verdiğin)
+# ------------------------------
+_ANALYSIS_JSON_LINKS = {
+    "0dan0.json":        "1vjR6tzfnf-Iwd5KetfrvopP9YHvfyW1G",
+    "0dan1.json":        "1mRIItyxiAXGrvHXjXahBSzScyKRSQ0cu",
+    "0dan2.json":        "1XbjcBWygjkyY_mzkMv74BcUO6L29kN5W",
+    "1den0.json":        "1lLWNvAwmwB6_QtmoAk_D4bX6DO_yIaW-",
+    "1den2.json":        "12V4EWHQfrfPB0-9D4jyN63wScR57o-FE",
+    "2.5_alt.json":      "1q53CchXhowrDR-fBnwbGgUg4a1WJcx_8",
+    "2.5_üst.json":      "1dX9VloFS7M84W2ZCV_tPyJ6narfQqtMy",
+    "2den0.json":        "1vjlIzjKia0Nu9KchiFN91TWQxxgirPfv",
+    "2den1.json":        "1048WEM2tW8tWU1eewQtZQVGlITfNWAxT",
+    "handikap-1_0.json": "186WjR3aqdFbrwM26kL5KB71HXx4bKlZS",
+    "handikap1_0.json":  "1aqjrRaFx4jPxxEKzQx0rY-Rurn-_7TGx",
+    "iy_1-1_ms_+4.json": "1t3N5EnUfeGmQplz7_ayYGTcsNPBOM5dD",
+    "iy_1.5_üst.json":   "1bggqLhLqQ4B17QMeEGqU7G7WL3YkVku3",
+    "iy_kg_var.json":    "14G-sul2odfWTRW8kkmW1uA7fgUNQcyi_",
+    "ms1_2.5_üst.json":  "1jZfMzxIT19dUEbcoerSRR0S5Wgrn8mIK",
+    "ms2_2.5_üst.json":  "1XWqVjZpSitlcmalitv8vKfgbCMLfcHwQ",
+    "ms_kg_var.json":    "1QHDBqEIYXNsjuwlZNMHgGBcTspiTjF57",
+    "ms_kg_yok.json":    "14u3Pz1V5m536ZOn8QHvRatjNLMf1ObgP",
+}
+
+# Her JSON için gerekli MTID/SOV/N (senin örneğinle birebir)
+_JSON_REQUIREMENTS: Dict[str, Dict] = {
+    "0dan0.json":        {"mtid": 5,   "sov": 0.00, "n": 5},
+    "0dan1.json":        {"mtid": 5,   "sov": 0.00, "n": 4},
+    "0dan2.json":        {"mtid": 5,   "sov": 0.00, "n": 6},
+    "1den0.json":        {"mtid": 5,   "sov": 0.00, "n": 2},
+    "1den2.json":        {"mtid": 5,   "sov": 0.00, "n": 3},
+    "2.5_alt.json":      {"mtid": 12,  "sov": 2.50, "n": 1},
+    "2.5_üst.json":      {"mtid": 12,  "sov": 2.50, "n": 2},
+    "2den0.json":        {"mtid": 5,   "sov": 0.00, "n": 8},
+    "2den1.json":        {"mtid": 5,   "sov": 0.00, "n": 7},
+    "handikap-1_0.json": {"mtid": 268, "sov": -1.0, "n": 2},
+    "handikap1_0.json":  {"mtid": 268, "sov": 1.0,  "n": 2},
+    "iy_1-1_ms_+4.json": {"mtid": 571, "sov": None, "n": 18},
+    "iy_1.5_üst.json":   {"mtid": 14,  "sov": 1.50, "n": 2},
+    "iy_kg_var.json":    {"mtid": 452, "sov": 0.00, "n": 1},
+    "ms1_2.5_üst.json":  {"mtid": 343, "sov": 2.50, "n": 4},
+    "ms2_2.5_üst.json":  {"mtid": 343, "sov": 2.50, "n": 6},
+    "ms_kg_var.json":    {"mtid": 38,  "sov": 0.00, "n": 1},
+    "ms_kg_yok.json":    {"mtid": 38,  "sov": 0.00, "n": 2},
+}
+
+# Risk grupları (senin liste)
+def _get_risk_groups():
+    return {
+        "0dan0.json": ["0dan1.json", "0dan2.json", "1den0.json", "1den2.json", "2den0.json", "ms1_2.5_üst.json", "ms2_2.5_üst.json", "handikap1_0.json", "handikap-1_0.json"],
+        "0dan1.json": ["0dan0.json", "0dan2.json", "1den0.json", "1den2.json", "2den0.json", "2den1.json", "handikap1_0.json", "ms2_2.5_üst.json"],
+        "0dan2.json": ["0dan0.json", "0dan1.json", "1den0.json", "1den2.json", "2den0.json", "2den1.json", "handikap-1_0.json", "ms1_2.5_üst.json"],
+        "1den0.json": ["0dan0.json", "0dan1.json", "0dan2.json", "1den2.json", "2den0.json", "2den1.json", "ms1_2.5_üst.json", "ms2_2.5_üst.json", "handikap1_0.json", "handikap-1_0.json", "ms_kg_yok.json", "iy_1-1_ms_+4.json"],
+        "1den2.json": ["0dan0.json", "0dan1.json", "0dan2.json", "1den0.json", "2den0.json", "2den1.json", "ms1_2.5_üst.json", "handikap-1_0.json", "ms_kg_yok.json", "2.5_alt.json", "iy_1-1_ms_+4.json"],
+        "2.5_alt.json": ["1den2.json", "2.5_üst.json", "2den1.json", "iy_1-1_ms_+4.json", "ms1_2.5_üst.json", "ms2_2.5_üst.json"],
+        "2.5_üst.json": ["2.5_alt.json"],
+        "2den0.json": ["0dan0.json", "0dan1.json", "0dan2.json", "1den0.json", "1den2.json", "2den1.json", "handikap-1_0.json", "handikap1_0.json", "iy_1-1_ms_+4.json", "ms1_2.5_üst.json", "ms2_2.5_üst.json", "ms_kg_yok.json"],
+        "2den1.json": ["0dan0.json", "0dan1.json", "0dan2.json", "1den0.json", "1den2.json", "2.5_alt.json", "2den0.json", "handikap1_0.json", "iy_1-1_ms_+4.json", "ms2_2.5_üst.json", "ms_kg_yok.json"],
+        "handikap-1_0.json": ["0dan0.json", "0dan2.json", "1den0.json", "1den2.json", "2den0.json", "handikap1_0.json", "ms2_2.5_üst.json"],
+        "handikap1_0.json": ["0dan0.json", "0dan1.json", "1den0.json", "2den0.json", "2den1.json", "handikap-1_0.json", "ms1_2.5_üst.json"],
+        "iy_1-1_ms_+4.json": ["0dan0.json", "0dan2.json", "1den0.json", "1den2.json", "2.5_alt.json", "2den0.json", "2den1.json", "ms_kg_yok.json"],
+        "iy_kg_var.json": ["ms_kg_yok.json"],
+        "ms1_2.5_üst.json": ["0dan0.json", "0dan2.json", "1den0.json", "1den2.json", "2.5_alt.json", "2den0.json", "handikap1_0.json", "ms2_2.5_üst.json"],
+        "ms2_2.5_üst.json": ["0dan0.json", "0dan1.json", "1den0.json", "2.5_alt.json", "2den0.json", "2den1.json", "handikap-1_0.json", "ms1_2.5_üst.json"],
+        "ms_kg_var.json": ["ms_kg_yok.json"],
+        "ms_kg_yok.json": ["1den0.json", "1den2.json", "2den0.json", "2den1.json", "iy_1-1_ms_+4.json", "iy_kg_var.json", "ms_kg_var.json"],
+    }
+
+# Sinyal grupları (senin liste)
+def _get_signal_groups():
+    return {
+        "0dan1.json": ["handikap-1_0.json", "ms1_2.5_üst.json"],
+        "0dan2.json": ["handikap1_0.json", "ms2_2.5_üst.json"],
+        "1den0.json": ["ms_kg_var.json"],
+        "2den0.json": ["ms_kg_var.json"],
+        "ms_kg_var.json": ["1den2.json", "1den0.json", "2den0.json", "2den1.json", "iy_1-1_ms_+4.json"],
+        "2.5_üst.json": ["1den2.json", "2den1.json", "ms2_2.5_üst.json", "ms1_2.5_üst.json"],
+    }
+
+# ------------------------------
+# JSON ve Mapping'leri yükle
+# ------------------------------
+def _download_json_to_file(file_id: str, local_name: str) -> bool:
+    try:
+        download(f"https://drive.google.com/uc?id={file_id}", local_name, quiet=True)
+        return True
+    except Exception as e:
+        st.error(f"{local_name} indirilemedi: {e}")
+        return False
+
+def _load_json(path: str):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        st.error(f"JSON okunamadı ({path}): {e}")
+        return None
+
+def _load_mappings():
+    # Eğer mevcut uygulama zaten mappingleri yüklediyse onu kullan
+    if st.session_state.get("league_mapping") and st.session_state.get("mtid_mapping"):
+        return st.session_state.league_mapping, st.session_state.mtid_mapping
+
+    # Yoksa indir
+    _download_json_to_file(LEAGUE_MAPPING_ID_SAFE, "league_mapping.json")
+    _download_json_to_file(MTID_MAPPING_ID_SAFE,   "mtid_mapping.json")
+
+    league_data = _load_json("league_mapping.json") or {}
+    league_mapping = {int(k): v for k, v in league_data.items()} if league_data else {}
+
+    mtid_raw = _load_json("mtid_mapping.json") or {}
+    mtid_mapping = {}
+    for key_str, value in mtid_raw.items():
+        if key_str.startswith("(") and key_str.endswith(")"):
+            parts = key_str[1:-1].split(", ")
+            if len(parts) == 2:
+                mtid = int(parts[0])
+                sov = None if parts[1] == "null" else float(parts[1])
+                mtid_mapping[(mtid, sov)] = value
+
+    # cache
+    st.session_state.league_mapping = league_mapping
+    st.session_state.mtid_mapping = mtid_mapping
+    return league_mapping, mtid_mapping
+
+def _load_analysis_jsons() -> Dict[str, dict]:
+    out = {}
+    for name, fid in _ANALYSIS_JSON_LINKS.items():
+        local = f"analysis__{name}"
+        if _download_json_to_file(fid, local):
+            data = _load_json(local)
+            if data is not None:
+                out[name] = data
+    return out
+
+# ------------------------------
+# API
+# ------------------------------
+def _fetch_api() -> List[dict]:
+    # URL senin örnekteki gibi sabit
+    url = "https://bulten.nesine.com/api/bulten/getprebultendelta?eventVersion=462376563&marketVersion=462376563&oddVersion=1712799325&_=1743545516827"
+    try:
+        r = requests.get(url, headers=HEADERS_SAFE, timeout=30)
+        r.raise_for_status()
+        j = r.json()
+        if isinstance(j, dict) and "sg" in j and "EA" in j["sg"]:
+            return j["sg"]["EA"]
+        return []
+    except Exception as e:
+        st.error(f"API hatası: {e}")
+        return []
+
+def _parse_dt(d: str, t: str) -> datetime:
+    try:
+        return datetime.strptime(f"{d} {t}", "%d.%m.%Y %H:%M").replace(tzinfo=IST_SAFE)
+    except Exception:
+        return datetime.min.replace(tzinfo=IST_SAFE)
+
+def _filter_by_window(rows: List[dict], start_dt: datetime, end_dt: datetime) -> List[dict]:
+    out = []
+    for m in rows:
+        md = m.get("D",""); mt = m.get("T","")
+        ts = _parse_dt(md, mt)
+        if start_dt <= ts <= end_dt:
+            out.append(m)
+    return out
+
+# ------------------------------
+# Maç işleme
+# ------------------------------
+def _process_match(raw: dict, league_map: Dict[int,str], mtid_map: Dict[Tuple[int,float], List[str]]):
+    league_id = raw.get("LC")
+    league_name = league_map.get(league_id, str(league_id))
+
+    markets = raw.get("MA", [])
+    named_odds = {}             # {market_adı: oran}
+    available: Dict[Tuple[int,float], Dict[int,float]] = {}  # {(mtid,sov): {N: oran}}
+
+    for m in markets:
+        mtid = m.get("MTID")
+        sov  = m.get("SOV")
+        try:
+            sovf = float(sov) if sov is not None else None
+        except Exception:
+            sovf = None
+
+        key = (mtid, sovf)
+        available[key] = {}
+
+        for oc in m.get("OCA", []):
+            n = oc.get("N"); o = oc.get("O")
+            try:
+                if n is not None and o is not None:
+                    available[key][int(n)] = float(o)
+            except Exception:
+                pass
+
+        # İsme çevir ve sırayla doldur
+        # Eğer (mtid, sov) yoksa (mtid, None) dene
+        mapping_key = key if key in mtid_map else (mtid, None)
+        if mapping_key in mtid_map:
+            names = mtid_map[mapping_key]
+            for idx, oc in enumerate(m.get("OCA", [])):
+                if idx >= len(names): break
+                try:
+                    o = float(oc.get("O"))
+                    named_odds[names[idx]] = o
+                except Exception:
+                    pass
+
+    return {
+        "Tarih": raw.get("D",""),
+        "Saat":  raw.get("T",""),
+        "Lig":   league_name,
+        "Ev":    raw.get("HN",""),
+        "Dep":   raw.get("AN",""),
+        "Oranlar": named_odds,
+        "Avail":   available,
+        "DT": _parse_dt(raw.get("D",""), raw.get("T","")),
+    }
+
+def _get_specific_odd(match_info, mtid: int, sov, n: int):
+    k = (mtid, sov)
+    if k in match_info["Avail"] and n in match_info["Avail"][k]:
+        return match_info["Avail"][k][n]
+    k2 = (mtid, None)
+    if k2 in match_info["Avail"] and n in match_info["Avail"][k2]:
+        return match_info["Avail"][k2][n]
+    return None
+
+def _check_conditions(match_info, conds: dict, json_name: str, req_mtid: int, req_sov, req_n: int):
+    odd_needed = _get_specific_odd(match_info, req_mtid, req_sov, req_n)
+    if odd_needed is None:
+        return False, 0, 0, None
+
+    lig = match_info["Lig"]
+    if lig not in conds:
+        return False, 0, 0, odd_needed
+
+    rules = conds[lig]
+    total = len(rules)
+    hit = 0
+    for r in rules:
+        mk = r.get("market"); mi = r.get("min_odds"); ma = r.get("max_odds")
+        val = match_info["Oranlar"].get(mk)
+        try:
+            if val is not None and mi <= float(val) <= ma:
+                hit += 1
+        except Exception:
+            pass
+
+    if total <= 3: req = total
+    elif total <= 6: req = int(total * 0.75)
+    else: req = int(total * 0.60)
+
+    return (hit >= req), hit, total, odd_needed
+
+def _risk_status(current_json: str, matched_jsons: List[str], risk_groups: Dict[str, List[str]]):
+    lst = risk_groups.get(current_json, [])
+    for j in matched_jsons:
+        if j in lst:
+            return "Riskli"
+    return "Güvenli" if current_json in risk_groups else "Bilinmiyor"
+
+def _signal_info(current_json: str, matched_jsons: List[str], signal_groups: Dict[str, List[str]]):
+    lst = signal_groups.get(current_json, [])
+    cnt = sum(1 for j in matched_jsons if j in lst)
+    if cnt >= 2:
+        return "Sinyal", cnt, len(lst)
+    return None, 0, len(lst)
+
+# ------------------------------
+# UI — form
+# ------------------------------
+with st.container(border=True):
+    colA, colB = st.columns(2)
+
+    now_ist = datetime.now(IST_SAFE)
+    default_start = now_ist + timedelta(minutes=5)
+    default_end   = default_start + timedelta(minutes=180)
+
+    with colA:
+        st.subheader("Analiz için Saat Aralığı")
+        start_date = st.date_input("Başlangıç Tarihi", value=default_start.date(), format="DD.MM.YYYY")
+        start_time = st.time_input("Başlangıç Saati", value=default_start.time())
+    with colB:
+        st.subheader("Bitiş")
+        end_date = st.date_input("Bitiş Tarihi", value=default_end.date(), format="DD.MM.YYYY", key="lge_end_date")
+        end_time = st.time_input("Bitiş Saati (HH:mm)", value=default_end.time(), key="lge_end_time")
+
+    run_lga = st.button("Analize Başla (Lige Göre)")
+
+# ------------------------------
+# Çalıştır
+# ------------------------------
+if run_lga:
+    status = st.empty()
+    status.info("JSON eşleşmeleri ve mappingler yükleniyor...")
+
+    league_map, mtid_map = _load_mappings()
+    analysis_jsons = _load_analysis_jsons()
+    risk_groups  = _get_risk_groups()
+    signal_groups = _get_signal_groups()
+
+    if not analysis_jsons:
+        st.warning("Analiz için JSON dosyaları indirilemedi.")
+        st.stop()
+
+    status.info("API verisi çekiliyor...")
+    api_rows = _fetch_api()
+    if not api_rows:
+        st.warning("API’den maç verisi alınamadı.")
+        st.stop()
+
+    st_dt = datetime.combine(start_date, start_time).replace(tzinfo=IST_SAFE)
+    en_dt = datetime.combine(end_date,   end_time).replace(tzinfo=IST_SAFE)
+
+    status.info("Zaman filtresi uygulanıyor...")
+    filtered = _filter_by_window(api_rows, st_dt, en_dt)
+    if not filtered:
+        st.warning("Seçtiğiniz aralıkta maç bulunamadı.")
+        st.stop()
+
+    status.info("Maçlar işleniyor...")
+    processed = [_process_match(m, league_map, mtid_map) for m in filtered]
+
+    # Her maç için eşleşen JSON listesi
+    matches_per_game: Dict[str, List[str]] = {}
+
+    # Tüm sonuçlar: {json_name: [(match_info, hit, total, odd, risk)]}
+    all_results: Dict[str, List[Tuple[dict,int,int,float,str]]] = {}
+
+    status.info("Koşullar kontrol ediliyor...")
+    for jname, jdata in analysis_jsons.items():
+        req = _JSON_REQUIREMENTS.get(jname, {"mtid": None, "sov": None, "n": None})
+        req_mtid, req_sov, req_n = req["mtid"], req["sov"], req["n"]
+        bucket = []
+        for mi in processed:
+            ok, hit, total, odd = _check_conditions(mi, jdata, jname, req_mtid, req_sov, req_n)
+            if ok:
+                key = f"{mi['Ev']} vs {mi['Dep']} - {mi['Tarih']} {mi['Saat']}"
+                matches_per_game.setdefault(key, []).append(jname)
+                bucket.append((mi, hit, total, odd, ""))  # risk sonra
+        all_results[jname] = bucket
+
+    # Risk atamaları
+    for jname, rows in all_results.items():
+        for idx, (mi, hit, total, odd, _) in enumerate(rows):
+            key = f"{mi['Ev']} vs {mi['Dep']} - {mi['Tarih']} {mi['Saat']}"
+            others = [j for j in matches_per_game.get(key, []) if j != jname]
+            rsk = _risk_status(jname, others, risk_groups)
+            rows[idx] = (mi, hit, total, odd, rsk)
+
+    status.success("Analiz tamamlandı. Görselleştiriliyor...")
+
+    # ------------------------------
+    # Görselleştirme (Excel GÖSTERME mantığı)
+    # ------------------------------
+    # 1) GENEL sekmesi
+    genel_rows = []
+    for jname, rows in all_results.items():
+        for (mi, hit, total, odd, rsk) in sorted(rows, key=lambda x: x[0]["DT"]):
+            genel_rows.append({
+                "Kategori": jname.replace(".json", ""),
+                "Tarih": mi["Tarih"],
+                "Saat": mi["Saat"],
+                "Lig": mi["Lig"],
+                "Ev Sahibi": mi["Ev"],
+                "Deplasman": mi["Dep"],
+                "Eşleşen/Toplam": f"{hit}/{total}",
+                "Oran": odd if odd is not None else "",
+                "Risk": rsk,
+            })
+    df_genel = pd.DataFrame(genel_rows)
+
+    # 2) SİNYAL sekmesi
+    signal_rows = []
+    for jname, rows in all_results.items():
+        for (mi, hit, total, odd, rsk) in sorted(rows, key=lambda x: x[0]["DT"]):
+            key = f"{mi['Ev']} vs {mi['Dep']} - {mi['Tarih']} {mi['Saat']}"
+            others = [j for j in matches_per_game.get(key, []) if j != jname]
+            sig, sig_hit, sig_total = _signal_info(jname, others, signal_groups)
+            if sig:
+                signal_rows.append({
+                    "Kategori": jname.replace(".json", ""),
+                    "Tarih": mi["Tarih"],
+                    "Saat": mi["Saat"],
+                    "Lig": mi["Lig"],
+                    "Ev Sahibi": mi["Ev"],
+                    "Deplasman": mi["Dep"],
+                    "Eşleşen/Toplam": f"{hit}/{total}",
+                    "Sinyal": f"{sig_hit}/{sig_total}",
+                    "Oran": odd if odd is not None else "",
+                })
+    df_sinyal = pd.DataFrame(signal_rows)
+
+    # 3) Per-JSON sekmeleri
+    per_json_tabs = sorted(all_results.keys())
+
+    # Sekmeler
+    tabs = st.tabs(["Genel", "Sinyal"] + [n.replace(".json","") for n in per_json_tabs])
+
+    with tabs[0]:
+        st.subheader("Genel")
+        if df_genel.empty:
+            st.info("Genel sayfasında gösterilecek satır bulunamadı.")
+        else:
+            st.dataframe(df_genel, use_container_width=True, hide_index=True)
+
+    with tabs[1]:
+        st.subheader("Sinyal")
+        if df_sinyal.empty:
+            st.info("Sinyal sayfasında gösterilecek satır bulunamadı.")
+        else:
+            st.dataframe(df_sinyal, use_container_width=True, hide_index=True)
+
+    for i, jname in enumerate(per_json_tabs, start=2):
+        with tabs[i]:
+            rows = [{
+                "Tarih": mi["Tarih"], "Saat": mi["Saat"], "Lig": mi["Lig"],
+                "Ev Sahibi": mi["Ev"], "Deplasman": mi["Dep"],
+                "Eşleşen/Toplam": f"{hit}/{total}",
+                "Oran": odd if odd is not None else "",
+                "Risk": rsk,
+            } for (mi, hit, total, odd, rsk) in sorted(all_results[jname], key=lambda x: x[0]["DT"])]
+            df = pd.DataFrame(rows)
+            st.subheader(jname.replace(".json",""))
+            if df.empty:
+                st.info("Kayıt bulunamadı.")
+            else:
+                st.dataframe(df, use_container_width=True, hide_index=True)
