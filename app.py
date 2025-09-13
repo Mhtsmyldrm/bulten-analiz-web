@@ -1521,3 +1521,159 @@ if run_lga:
                 st.info("Kayıt bulunamadı.")
             else:
                 st.dataframe(df, use_container_width=True, hide_index=True)
+
+# ==============================
+# PATCH: Robust load_json_mappings (ESKİ FONKSİYONU EZER)
+# Bunu dosyanın en altına koyun. Eski sistemi bozmaz; sadece daha dayanıklı yapar.
+# ==============================
+import os  # güvenli import; varsa yeniden import sorun çıkarmaz
+
+def load_json_mappings():
+    """
+    Mapping'leri şu sırayla elde eder:
+    1) session_state cache (Lige Göre Analiz zaten yüklediyse)
+    2) yerel dosyalar (league_mapping.json, mtid_mapping.json)
+    3) gdown (retry ile)
+    4) elle yükleme (file_uploader)
+    """
+    # 1) SESSION CACHE
+    lm = st.session_state.get("league_mapping")
+    mm = st.session_state.get("mtid_mapping")
+    if isinstance(lm, dict) and lm and isinstance(mm, dict) and mm:
+        # zaten var
+        return True
+
+    # 2) YEREL DOSYALAR
+    def _try_load_local(fname):
+        if not os.path.exists(fname):
+            return None
+        try:
+            with open(fname, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    league_data = _try_load_local("league_mapping.json")
+    mtid_data   = _try_load_local("mtid_mapping.json")
+
+    if isinstance(league_data, dict) and isinstance(mtid_data, dict):
+        try:
+            league_mapping = {int(k): v for k, v in league_data.items()}
+        except Exception:
+            league_mapping = {}
+
+        mtid_mapping = {}
+        try:
+            for key_str, value in mtid_data.items():
+                if isinstance(key_str, str) and key_str.startswith("(") and key_str.endswith(")"):
+                    parts = key_str[1:-1].split(", ")
+                    if len(parts) == 2:
+                        mtid = int(parts[0])
+                        try:
+                            sov = None if parts[1] == "null" else float(parts[1])
+                        except Exception:
+                            sov = None
+                        mtid_mapping[(mtid, sov)] = value
+        except Exception:
+            mtid_mapping = {}
+
+        if league_mapping and mtid_mapping:
+            st.session_state.league_mapping = league_mapping
+            st.session_state.mtid_mapping   = mtid_mapping
+            return True  # local cache ile başarı
+
+    # 3) GDOWN (RETRY)
+    # Not: gdown zaman zaman kotalara takılıyor; yine de bir iki deneme yapalım.
+    from gdown import download as _gdown_download
+    def _gdown_try(file_id, out, tries=3):
+        for attempt in range(1, tries+1):
+            try:
+                _gdown_download(f"https://drive.google.com/uc?id={file_id}", out, quiet=True)
+                if os.path.exists(out) and os.path.getsize(out) > 0:
+                    return True
+            except Exception as e:
+                if attempt == tries:
+                    st.warning(f"{out} indirme denemeleri tükendi: {e}")
+            # ufak bekleme
+            time.sleep(0.8 * attempt)
+        return False
+
+    ok1 = _gdown_try(LEAGUE_MAPPING_ID, "league_mapping.json", tries=2)
+    ok2 = _gdown_try(MTID_MAPPING_ID,   "mtid_mapping.json",   tries=2)
+
+    if ok1 and ok2:
+        # indirilen dosyaları parse et
+        try:
+            with open("league_mapping.json", "r", encoding="utf-8") as f:
+                league_data = json.load(f)
+            league_mapping = {int(k): v for k, v in league_data.items()}
+        except Exception as e:
+            st.error(f"league_mapping.json okunamadı: {e}")
+            league_mapping = {}
+
+        try:
+            with open("mtid_mapping.json", "r", encoding="utf-8") as f:
+                mtid_data = json.load(f)
+            mtid_mapping = {}
+            for key_str, value in mtid_data.items():
+                if key_str.startswith("(") and key_str.endswith(")"):
+                    parts = key_str[1:-1].split(", ")
+                    if len(parts) == 2:
+                        mtid = int(parts[0])
+                        sov = None if parts[1] == "null" else float(parts[1])
+                        mtid_mapping[(mtid, sov)] = value
+        except Exception as e:
+            st.error(f"mtid_mapping.json okunamadı: {e}")
+            mtid_mapping = {}
+
+        if league_mapping and mtid_mapping:
+            st.session_state.league_mapping = league_mapping
+            st.session_state.mtid_mapping   = mtid_mapping
+            return True
+
+    # 4) ELLE YÜKLEME (Acil durum butonu)
+    with st.expander("JSON mappingler Drive'dan indirilemedi — Elle yükle (geçici çözüm)"):
+        c1, c2 = st.columns(2)
+        with c1:
+            up_league = st.file_uploader("league_mapping.json yükle", type=["json"], key="up_league_mapping")
+        with c2:
+            up_mtid   = st.file_uploader("mtid_mapping.json yükle",   type=["json"], key="up_mtid_mapping")
+
+        if up_league and up_mtid:
+            try:
+                league_data = json.load(up_league)
+                league_mapping = {int(k): v for k, v in league_data.items()}
+            except Exception as e:
+                st.error(f"league_mapping.json parse hatası: {e}")
+                league_mapping = {}
+
+            try:
+                mtid_data = json.load(up_mtid)
+                mtid_mapping = {}
+                for key_str, value in mtid_data.items():
+                    if key_str.startswith("(") and key_str.endswith(")"):
+                        parts = key_str[1:-1].split(", ")
+                        if len(parts) == 2:
+                            mtid = int(parts[0])
+                            sov = None if parts[1] == "null" else float(parts[1])
+                            mtid_mapping[(mtid, sov)] = value
+            except Exception as e:
+                st.error(f"mtid_mapping.json parse hatası: {e}")
+                mtid_mapping = {}
+
+            if league_mapping and mtid_mapping:
+                # yerel dosya olarak da kaydet (bir dahaki sefere doğrudan okuyalım)
+                try:
+                    with open("league_mapping.json", "w", encoding="utf-8") as f:
+                        json.dump(league_data, f, ensure_ascii=False)
+                    with open("mtid_mapping.json", "w", encoding="utf-8") as f:
+                        json.dump(mtid_data, f, ensure_ascii=False)
+                except Exception:
+                    pass
+                st.session_state.league_mapping = league_mapping
+                st.session_state.mtid_mapping   = mtid_mapping
+                st.success("Mappingler yüklendi (elle). Sayfayı tekrar çalıştırabilirsiniz.")
+                return True
+
+    # buraya düştüyse başarısız
+    return False
