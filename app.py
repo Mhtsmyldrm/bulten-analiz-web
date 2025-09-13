@@ -1488,6 +1488,18 @@ if run_lga:
             # Açık yeşil dolgu
             return ['background-color: #05fa05'] * len(row)
         return [''] * len(row)
+
+    # === Genel sekmesi: "Oran" kolonunu 2 ondalık göster ===
+    def _fmt_oran(x):
+        try:
+            if x == "" or x is None:
+                return ""
+            # NaN kontrolü
+            if isinstance(x, float) and pd.isna(x):
+                return ""
+            return f"{float(x):.2f}"
+        except Exception:
+            return x
   
     # 2) SİNYAL sekmesi  (KATEGORİ SONUNA BOŞ SATIR EKLEME)
     signal_rows = []
@@ -1541,7 +1553,12 @@ if run_lga:
         if df_genel.empty:
             st.info("Genel sayfasında gösterilecek satır bulunamadı.")
         else:
-            styled_genel = df_genel.style.apply(_style_genel_rows, axis=1)
+            styled_genel = (
+                df_genel
+                .style
+                .apply(_style_genel_rows, axis=1)
+                .format({"Oran": _fmt_oran})   # <<< 2 ondalık biçim
+            )
             st.dataframe(styled_genel, use_container_width=True, hide_index=True)
 
     with tabs[1]:
