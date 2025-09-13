@@ -1389,7 +1389,7 @@ with st.container(border=True):
     with colB:
         st.subheader("Bitiş")
         end_date = st.date_input("Bitiş Tarihi", format="DD.MM.YYYY", key="lge_end_date")
-        end_time = st.time_input("Bitiş Saati (HH:mm)", key="lge_end_time")
+        end_time = st.time_input("Bitiş Saati", key="lge_end_time")
 
     run_lga = st.button("Analize Başla (Lige Göre)")
 
@@ -1486,7 +1486,7 @@ if run_lga:
     
         if isinstance(risk_val, str) and risk_val.strip().lower() == "güvenli":
             # Açık yeşil dolgu
-            return ['background-color: #dff7df'] * len(row)
+            return ['background-color: #05fa05'] * len(row)
         return [''] * len(row)
   
     # 2) SİNYAL sekmesi  (KATEGORİ SONUNA BOŞ SATIR EKLEME)
