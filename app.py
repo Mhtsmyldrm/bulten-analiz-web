@@ -8,6 +8,7 @@ import time
 import json
 import math
 from collections import Counter
+import difflib
 
 # ==============================
 # UI & THEME
@@ -50,6 +51,7 @@ for key, default in [
     ("iyms_df", None),
     ("main_df", None),
     ("output_rows", None),
+    ("stats_df", None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -75,42 +77,64 @@ HEADERS = {
 IST = timezone(timedelta(hours=3))
 
 # ==============================
-# LOAD JSON MAPPINGS
+# YENİ: MBS SEÇİMİ
 # ==============================
-def load_json_mappings():
-    try:
-        download(f"https://drive.google.com/uc?id={LEAGUE_MAPPING_ID}", "league_mapping.json", quiet=True)
-        with open("league_mapping.json", "r", encoding="utf-8") as f:
-            league_data = json.load(f)
-            league_mapping = {int(k): v for k, v in league_data.items()}
-    except Exception as e:
-        st.error(f"league_mapping.json yüklenirken hata: {str(e)}")
-        league_mapping = {}
+def get_mbs_choice():
+    """MBS filtreleme seçimi"""
+    st.subheader("MBS Filtreleme Seçimi")
+    mbs_choice = st.radio(
+        "MBS Filtresi:",
+        options=['1', '2', '3', '4', '5'],
+        format_func=lambda x: {
+            '1': 'Sadece MBS 1 olan maçlar',
+            '2': 'Sadece MBS 2 olan maçlar', 
+            '3': 'Sadece MBS 3 olan maçlar',
+            '4': 'MBS 1 ve 2 olan maçlar',
+            '5': 'Tüm maçlar (filtre yok)'
+        }[x],
+        horizontal=True
+    )
+    return mbs_choice
 
-    try:
-        download(f"https://drive.google.com/uc?id={MTID_MAPPING_ID}", "mtid_mapping.json", quiet=True)
-        with open("mtid_mapping.json", "r", encoding="utf-8") as f:
-            mtid_data = json.load(f)
-            mtid_mapping = {}
-            for key_str, value in mtid_data.items():
-                if key_str.startswith("(") and key_str.endswith(")"):
-                    parts = key_str[1:-1].split(", ")
-                    if len(parts) == 2:
-                        mtid = int(parts[0])
-                        sov = None if parts[1] == "null" else float(parts[1])
-                        mtid_mapping[(mtid, sov)] = value
-    except Exception as e:
-        st.error(f"mtid_mapping.json yüklenirken hata: {str(e)}")
-        mtid_mapping = {}
-
-    st.session_state.league_mapping = league_mapping
-    st.session_state.mtid_mapping = mtid_mapping
-    return True if league_mapping and mtid_mapping else False
+def filter_matches_by_mbs(match_list, mbs_choice):
+    """MBS değerine göre maçları filtreler"""
+    if mbs_choice == '5':  # Tüm maçlar
+        return match_list
+    
+    filtered_matches = []
+    
+    for match in match_list:
+        if not isinstance(match, dict):
+            continue
+            
+        # Maçın MBS değerini bul (MTID=1 olan marketten)
+        match_mbs = None
+        markets = match.get("MA", [])
+        
+        for market in markets:
+            if market.get("MTID") == 1:  # Maç Sonucu marketi
+                match_mbs = market.get("MBS")
+                break
+        
+        # MBS değerine göre filtrele
+        if mbs_choice == '1' and match_mbs == 1:
+            filtered_matches.append(match)
+        elif mbs_choice == '2' and match_mbs == 2:
+            filtered_matches.append(match)
+        elif mbs_choice == '3' and match_mbs == 3:
+            filtered_matches.append(match)
+        elif mbs_choice == '4' and match_mbs in [1, 2]:
+            filtered_matches.append(match)
+    
+    st.info(f"MBS filtresinden sonra: {len(filtered_matches)} maç kaldı")
+    return filtered_matches
 
 # ==============================
-# SIMILARITY
+# YENİ: GELİŞMİŞ BENZERLİK HESAPLAMA (v43'ten)
 # ==============================
 def calculate_similarity(api_odds: dict, match_odds: dict) -> float:
+    """API maç oran profili ile arşiv maç oran profili arasındaki benzerlik (0-100)"""
+    
     def to_float(x):
         try:
             return float(x)
@@ -163,12 +187,15 @@ def calculate_similarity(api_odds: dict, match_odds: dict) -> float:
         return 0.0
 
     ms_sim = hellinger(trio_api, trio_mat)
-    if ms_sim < 0.85:
+    if ms_sim < 0.70:
         return round(ms_sim * 100.0, 2)
 
-    per_leg_tol = 0.12
+    per_leg_tol = 0.20
+    
+    legs_api = trio_api
+    legs_mat = trio_mat
     for i in range(3):
-        d = rel_diff(trio_api[i], trio_mat[i])
+        d = rel_diff(legs_api[i], legs_mat[i])
         if d is None or d > per_leg_tol:
             bad = 0.0 if d is None else max(0.0, 1.0 - d)
             return round(100.0 * min(bad, ms_sim), 2)
@@ -268,426 +295,173 @@ def calculate_similarity(api_odds: dict, match_odds: dict) -> float:
     return round(score * 100.0, 2)
 
 # ==============================
-# PREDICTION CRITERIA
+# YENİ: KALİTE FİLTRELERİ (v43'ten)
 # ==============================
-prediction_criteria = {
-    "Maç Sonucu 1": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]),
-        "mtid": 1, "sov": None, "oca_key": "1", "column_name": "Maç Sonucu 1",
-    },
-    "Maç Sonucu X": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]),
-        "mtid": 1, "sov": None, "oca_key": "2", "column_name": "Maç Sonucu X",
-    },
-    "Maç Sonucu 2": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]),
-        "mtid": 1, "sov": None, "oca_key": "3", "column_name": "Maç Sonucu 2",
-    },
-
-    "İlk Yarı Karşılıklı Gol Var": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > 0 and int(r["IY SKOR"].split("-")[1]) > 0,
-        "mtid": 452, "sov": None, "oca_key": "1", "column_name": "Karşılıklı Gol Var",
-    },
-    "İlk Yarı 0,5 Gol Üst": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and sum(map(int, r["IY SKOR"].split("-"))) > 0,
-        "mtid": 209, "sov": 0.50, "oca_key": "2", "column_name": "1. Yarı 0,5 Alt/Üst Üst",
-    },
-    "İlk Yarı 1,5 Gol Üst": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and sum(map(int, r["IY SKOR"].split("-"))) > 1,
-        "mtid": 14, "sov": 1.50, "oca_key": "2", "column_name": "1. Yarı 1,5 Alt/Üst Üst",
-    },
-
-    "Toplam Gol 2,5 Gol Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and sum(map(int, r["MS SKOR"].split("-"))) > 2,
-        "mtid": 12, "sov": 2.50, "oca_key": "2", "column_name": "2,5 Alt/Üst Üst",
-    },
-    "Toplam Gol 2,5 Gol Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and sum(map(int, r["MS SKOR"].split("-"))) < 3,
-        "mtid": 12, "sov": 2.50, "oca_key": "1", "column_name": "2,5 Alt/Üst Alt",
-    },
-
-    "1. Yarı Sonucu 1": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]),
-        "mtid": 7, "sov": None, "oca_key": "1", "column_name": "1. Yarı Sonucu 1",
-    },
-    "1. Yarı Sonucu X": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]),
-        "mtid": 7, "sov": None, "oca_key": "2", "column_name": "1. Yarı Sonucu X",
-    },
-    "1. Yarı Sonucu 2": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]),
-        "mtid": 7, "sov": None, "oca_key": "3", "column_name": "1. Yarı Sonucu 2",
-    },
-
-    "Handikaplı Maç Sonucu (-1,0) 1": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) >= int(r["MS SKOR"].split("-")[1]) + 2,
-        "mtid": 268, "sov": -1.0, "oca_key": "1",
-        "column_name": "Handikaplı Maç Sonucu (-1,0) 1",
-        "display_name": "Handikaplı Maç Sonucu (0,1) 1",
-    },
-    "Handikaplı Maç Sonucu (-1,0) X": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) + 1,
-        "mtid": 268, "sov": -1.0, "oca_key": "2",
-        "column_name": "Handikaplı Maç Sonucu (-1,0) X",
-        "display_name": "Handikaplı Maç Sonucu (0,1) X",
-    },
-    "Handikaplı Maç Sonucu (-1,0) 2": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) <= int(r["MS SKOR"].split("-")[1]),
-        "mtid": 268, "sov": -1.0, "oca_key": "3",
-        "column_name": "Handikaplı Maç Sonucu (-1,0) 2",
-        "display_name": "Handikaplı Maç Sonucu (0,1) 2",
-    },
-
-    "Handikaplı Maç Sonucu (1,0) 1": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) >= int(r["MS SKOR"].split("-")[1]),
-        "mtid": 268, "sov": 1.0, "oca_key": "1", "column_name": "Handikaplı Maç Sonucu (1,0) 1",
-    },
-    "Handikaplı Maç Sonucu (1,0) X": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) == int(r["MS SKOR"].split("-")[0]) + 1,
-        "mtid": 268, "sov": 1.0, "oca_key": "2", "column_name": "Handikaplı Maç Sonucu (1,0) X",
-    },
-    "Handikaplı Maç Sonucu (1,0) 2": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) >= int(r["MS SKOR"].split("-")[0]) + 2,
-        "mtid": 268, "sov": 1.0, "oca_key": "3", "column_name": "Handikaplı Maç Sonucu (1,0) 2",
-    },
-
-    "İlk Yarı/Maç Sonucu 1/1": {
-        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]),
-        "mtid": 5, "sov": None, "oca_key": "1", "column_name": "İlk Yarı/Maç Sonucu 1/1",
-    },
-    "İlk Yarı/Maç Sonucu 1/X": {
-        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]),
-        "mtid": 5, "sov": None, "oca_key": "2", "column_name": "İlk Yarı/Maç Sonucu 1/X",
-    },
-    "İlk Yarı/Maç Sonucu 1/2": {
-        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]),
-        "mtid": 5, "sov": None, "oca_key": "3", "column_name": "İlk Yarı/Maç Sonucu 1/2",
-    },
-    "İlk Yarı/Maç Sonucu X/1": {
-        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]),
-        "mtid": 5, "sov": None, "oca_key": "4", "column_name": "İlk Yarı/Maç Sonucu X/1",
-    },
-    "İlk Yarı/Maç Sonucu X/X": {
-        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]),
-        "mtid": 5, "sov": None, "oca_key": "5", "column_name": "İlk Yarı/Maç Sonucu X/X",
-    },
-    "İlk Yarı/Maç Sonucu X/2": {
-        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]),
-        "mtid": 5, "sov": None, "oca_key": "6", "column_name": "İlk Yarı/Maç Sonucu X/2",
-    },
-    "İlk Yarı/Maç Sonucu 2/1": {
-        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]),
-        "mtid": 5, "sov": None, "oca_key": "7", "column_name": "İlk Yarı/Maç Sonucu 2/1",
-    },
-    "İlk Yarı/Maç Sonucu 2/X": {
-        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]),
-        "mtid": 5, "sov": None, "oca_key": "8", "column_name": "İlk Yarı/Maç Sonucu 2/X",
-    },
-    "İlk Yarı/Maç Sonucu 2/2": {
-        "func": lambda r: r.get("IY SKOR") and r.get("MS SKOR") and "-" in r["IY SKOR"] and "-" in r["MS SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]),
-        "mtid": 5, "sov": None, "oca_key": "9", "column_name": "İlk Yarı/Maç Sonucu 2/2",
-    },
-
-    "Maç Sonucu 1 ve 1,5 Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 2,
-        "mtid": 342, "sov": 1.50, "oca_key": "1", "column_name": "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt",
-    },
-    "Maç Sonucu X ve 1,5 Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 2,
-        "mtid": 342, "sov": 1.50, "oca_key": "2", "column_name": "Maç Sonucu ve (1,5) Alt/Üst X ve Alt",
-    },
-    "Maç Sonucu 2 ve 1,5 Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 2,
-        "mtid": 342, "sov": 1.50, "oca_key": "3", "column_name": "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
-    },
-    "Maç Sonucu 1 ve 1,5 Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 1,
-        "mtid": 342, "sov": 1.50, "oca_key": "4", "column_name": "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst",
-    },
-    "Maç Sonucu X ve 1,5 Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 1,
-        "mtid": 342, "sov": 1.50, "oca_key": "5", "column_name": "Maç Sonucu ve (1,5) Alt/Üst X ve Üst",
-    },
-    "Maç Sonucu 2 ve 1,5 Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 1,
-        "mtid": 342, "sov": 1.50, "oca_key": "6", "column_name": "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst",
-    },
-
-    "Maç Sonucu 1 ve 2,5 Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 3,
-        "mtid": 343, "sov": 2.50, "oca_key": "1", "column_name": "Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt",
-    },
-    "Maç Sonucu X ve 2,5 Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 3,
-        "mtid": 343, "sov": 2.50, "oca_key": "2", "column_name": "Maç Sonucu ve (2,5) Alt/Üst X ve Alt",
-    },
-    "Maç Sonucu 2 ve 2,5 Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 3,
-        "mtid": 343, "sov": 2.50, "oca_key": "3", "column_name": "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
-    },
-    "Maç Sonucu 1 ve 2,5 Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 2,
-        "mtid": 343, "sov": 2.50, "oca_key": "4", "column_name": "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst",
-    },
-    "Maç Sonucu X ve 2,5 Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 2,
-        "mtid": 343, "sov": 2.50, "oca_key": "5", "column_name": "Maç Sonucu ve (2,5) Alt/Üst X ve Üst",
-    },
-    "Maç Sonucu 2 ve 2,5 Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 2,
-        "mtid": 343, "sov": 2.50, "oca_key": "6", "column_name": "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst",
-    },
-
-    "Maç Sonucu 1 ve 3,5 Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 4,
-        "mtid": 272, "sov": 3.50, "oca_key": "1", "column_name": "Maç Sonucu ve (3,5) Alt/Üst 1 ve Alt",
-    },
-    "Maç Sonucu X ve 3,5 Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 4,
-        "mtid": 272, "sov": 3.50, "oca_key": "2", "column_name": "Maç Sonucu ve (3,5) Alt/Üst X ve Alt",
-    },
-    "Maç Sonucu 2 ve 3,5 Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) < 4,
-        "mtid": 272, "sov": 3.50, "oca_key": "3", "column_name": "Maç Sonucu ve (3,5) Alt/Üst 2 ve Alt",
-    },
-    "Maç Sonucu 1 ve 3,5 Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 3,
-        "mtid": 272, "sov": 3.50, "oca_key": "4", "column_name": "Maç Sonucu ve (3,5) Alt/Üst 1 ve Üst",
-    },
-    "Maç Sonucu X ve 3,5 Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 3,
-        "mtid": 272, "sov": 3.50, "oca_key": "5", "column_name": "Maç Sonucu ve (3,5) Alt/Üst X ve Üst",
-    },
-    "Maç Sonucu 2 ve 3,5 Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and sum(map(int, r["MS SKOR"].split("-"))) > 3,
-        "mtid": 272, "sov": 3.50, "oca_key": "6", "column_name": "Maç Sonucu ve (3,5) Alt/Üst 2 ve Üst",
-    },
-
-    "Maç Sonucu 1 ve KG Var": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > 0 and int(r["MS SKOR"].split("-")[1]) > 0,
-        "mtid": 414, "sov": None, "oca_key": "1", "column_name": "Maç Sonucu 1 ve KG Var",
-    },
-    "Maç Sonucu X ve KG Var": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > 0 and int(r["MS SKOR"].split("-")[1]) > 0,
-        "mtid": 414, "sov": None, "oca_key": "3", "column_name": "Maç Sonucu X ve KG Var",
-    },
-    "Maç Sonucu 2 ve KG Var": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < int(r["MS SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) > 0 and int(r["MS SKOR"].split("-")[1]) > 0,
-        "mtid": 414, "sov": None, "oca_key": "5", "column_name": "Maç Sonucu 2 ve KG Var",
-    },
-    "Maç Sonucu 1 ve KG Yok": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > int(r["MS SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[1]) == 0,
-        "mtid": 414, "sov": None, "oca_key": "2", "column_name": "Maç Sonucu 1 ve KG Yok",
-    },
-    "Maç Sonucu X ve KG Yok": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == int(r["MS SKOR"].split("-")[1]) and int(r["MS SKOR"].split("-")[0]) == 0 and int(r["MS SKOR"].split("-")[1]) == 0,
-        "mtid": 414, "sov": None, "oca_key": "4", "column_name": "Maç Sonucu X ve KG Yok",
-    },
-    "Maç Sonucu 2 ve KG Yok": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) == 0 and int(r["MS SKOR"].split("-")[1]) > 0,
-        "mtid": 414, "sov": None, "oca_key": "6", "column_name": "Maç Sonucu 2 ve KG Yok",
-    },
-
-    "1.Y Sonucu 1 ve 1.Y 1,5 Alt": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) < 2,
-        "mtid": 459, "sov": 1.50, "oca_key": "1", "column_name": "1.Y Sonucu 1 ve 1.Y 1,5 Alt",
-    },
-    "1.Y Sonucu X ve 1.Y 1,5 Alt": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) < 2,
-        "mtid": 459, "sov": 1.50, "oca_key": "2", "column_name": "1.Y Sonucu X ve 1.Y 1,5 Alt",
-    },
-    "1.Y Sonucu 2 ve 1.Y 1,5 Alt": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) < 2,
-        "mtid": 459, "sov": 1.50, "oca_key": "3", "column_name": "1.Y Sonucu 2 ve 1.Y 1,5 Alt",
-    },
-    "1.Y Sonucu 1 ve 1.Y 1,5 Üst": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) > 1,
-        "mtid": 459, "sov": 1.50, "oca_key": "4", "column_name": "1.Y Sonucu 1 ve 1.Y 1,5 Üst",
-    },
-    "1.Y Sonucu X ve 1.Y 1,5 Üst": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) > 1,
-        "mtid": 459, "sov": 1.50, "oca_key": "5", "column_name": "1.Y Sonucu X ve 1.Y 1,5 Üst",
-    },
-    "1.Y Sonucu 2 ve 1.Y 1,5 Üst": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and sum(map(int, r["IY SKOR"].split("-"))) > 1,
-        "mtid": 459, "sov": 1.50, "oca_key": "6", "column_name": "1.Y Sonucu 2 ve 1.Y 1,5 Üst",
-    },
-
-    "1. Yarı Sonucu 1 ve 1. Yarı KG Var": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and int(r["IY SKOR"].split("-")[0]) > 0 and int(r["IY SKOR"].split("-")[1]) > 0,
-        "mtid": 416, "sov": None, "oca_key": "1", "column_name": "1. Yarı Sonucu 1 ve 1. Yarı KG Var",
-    },
-    "1. Yarı Sonucu X ve 1. Yarı KG Var": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and int(r["IY SKOR"].split("-")[0]) > 0 and int(r["IY SKOR"].split("-")[1]) > 0,
-        "mtid": 416, "sov": None, "oca_key": "3", "column_name": "1. Yarı Sonucu X ve 1. Yarı KG Var",
-    },
-    "1. Yarı Sonucu 2 ve 1. Yarı KG Var": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and int(r["IY SKOR"].split("-")[0]) > 0 and int(r["IY SKOR"].split("-")[1]) > 0,
-        "mtid": 416, "sov": None, "oca_key": "5", "column_name": "1. Yarı Sonucu 2 ve 1. Yarı KG Var",
-    },
-    "1. Yarı Sonucu 1 ve 1. Yarı KG Yok": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > int(r["IY SKOR"].split("-")[1]) and (int(r["IY SKOR"].split("-")[0]) > 0) and (int(r["IY SKOR"].split("-")[1]) == 0),
-        "mtid": 416, "sov": None, "oca_key": "2", "column_name": "1. Yarı Sonucu 1 ve 1. Yarı KG Yok",
-    },
-    "1. Yarı Sonucu X ve 1. Yarı KG Yok": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) == int(r["IY SKOR"].split("-")[1]) and (int(r["IY SKOR"].split("-")[0]) == 0) and (int(r["IY SKOR"].split("-")[1]) == 0),
-        "mtid": 416, "sov": None, "oca_key": "4", "column_name": "1. Yarı Sonucu X ve 1. Yarı KG Yok",
-    },
-    "1. Yarı Sonucu 2 ve 1. Yarı KG Yok": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < int(r["IY SKOR"].split("-")[1]) and (int(r["IY SKOR"].split("-")[0]) == 0) and (int(r["IY SKOR"].split("-")[1]) > 0),
-        "mtid": 416, "sov": None, "oca_key": "6", "column_name": "1. Yarı Sonucu 2 ve 1. Yarı KG Yok",
-    },
-
-    "2,5 Alt ve KG Var": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and sum(map(int, r["MS SKOR"].split("-"))) < 3 and int(r["MS SKOR"].split("-")[0]) > 0 and int(r["MS SKOR"].split("-")[1]) > 0,
-        "mtid": 446, "sov": 2.50, "oca_key": "1", "column_name": "2,5 Alt ve KG Var",
-    },
-    "2,5 Alt ve KG Yok": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and ((int(r["MS SKOR"].split("-")[0]) == 0 and sum(map(int, r["MS SKOR"].split("-"))) < 3) or (int(r["MS SKOR"].split("-")[1]) == 0 and sum(map(int, r["MS SKOR"].split("-"))) < 3)),
-        "mtid": 446, "sov": 2.50, "oca_key": "3", "column_name": "2,5 Alt ve KG Yok",
-    },
-    "2,5 Üst ve KG Var": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and sum(map(int, r["MS SKOR"].split("-"))) > 2 and int(r["MS SKOR"].split("-")[0]) > 0 and int(r["MS SKOR"].split("-")[1]) > 0,
-        "mtid": 446, "sov": 2.50, "oca_key": "2", "column_name": "2,5 Üst ve KG Var",
-    },
-    "2,5 Üst ve KG Yok": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and ((int(r["MS SKOR"].split("-")[0]) == 0 and sum(map(int, r["MS SKOR"].split("-"))) > 2) or (int(r["MS SKOR"].split("-")[1]) == 0 and sum(map(int, r["MS SKOR"].split("-"))) > 2)),
-        "mtid": 446, "sov": 2.50, "oca_key": "4", "column_name": "2,5 Üst ve KG Yok",
-    },
-
-    "2. Yarı KG Var": {
-        "func": lambda r: r.get("MS SKOR") and r.get("IY SKOR") and "-" in r["MS SKOR"] and "-" in r["IY SKOR"] and (int(r["MS SKOR"].split("-")[0]) - int(r["IY SKOR"].split("-")[0])) > 0 and (int(r["MS SKOR"].split("-")[1]) - int(r["IY SKOR"].split("-")[1])) > 0,
-        "mtid": 599, "sov": None, "oca_key": "1", "column_name": "2. Yarı KG Var",
-    },
-    "2. Yarı KG Yok": {
-        "func": lambda r: r.get("MS SKOR") and r.get("IY SKOR") and "-" in r["MS SKOR"] and "-" in r["IY SKOR"] and (((int(r["MS SKOR"].split("-")[0]) - int(r["IY SKOR"].split("-")[0])) == 0 and (int(r["MS SKOR"].split("-")[1]) - int(r["IY SKOR"].split("-")[1])) > 0) or ((int(r["MS SKOR"].split("-")[0]) - int(r["IY SKOR"].split("-")[0])) > 0 and (int(r["MS SKOR"].split("-")[1]) - int(r["IY SKOR"].split("-")[1])) == 0)),
-        "mtid": 599, "sov": None, "oca_key": "2", "column_name": "2. Yarı KG Yok",
-    },
-
-    "Ev Sahibi 1.Y 0,5 Gol Alt": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) < 1,
-        "mtid": 455, "sov": 0.50, "oca_key": "1", "column_name": "Ev Sahibi 0,5 Alt/Üst Alt",
-    },
-    "Ev Sahibi 1.Y 0,5 Gol Üst": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[0]) > 0,
-        "mtid": 455, "sov": 0.50, "oca_key": "2", "column_name": "Ev Sahibi 0,5 Alt/Üst Üst",
-    },
-    "Deplasman 1.Y 0,5 Gol Alt": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[1]) < 1,
-        "mtid": 457, "sov": 0.50, "oca_key": "1", "column_name": "Deplasman 0,5 Alt/Üst Alt",
-    },
-    "Deplasman 1.Y 0,5 Gol Üst": {
-        "func": lambda r: r.get("IY SKOR") and "-" in r["IY SKOR"] and int(r["IY SKOR"].split("-")[1]) > 0,
-        "mtid": 457, "sov": 0.50, "oca_key": "2", "column_name": "Deplasman 0,5 Alt/Üst Üst",
-    },
-
-    "Ev Sahibi 1,5 Gol Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < 2,
-        "mtid": 20, "sov": 1.50, "oca_key": "1", "column_name": "Ev Sahibi 1,5 Alt/Üst Alt",
-    },
-    "Ev Sahibi 1,5 Gol Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > 1,
-        "mtid": 20, "sov": 1.50, "oca_key": "2", "column_name": "Ev Sahibi 1,5 Alt/Üst Üst",
-    },
-    "Ev Sahibi 2,5 Gol Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) < 3,
-        "mtid": 326, "sov": 2.50, "oca_key": "1", "column_name": "Ev Sahibi 2,5 Alt/Üst Alt",
-    },
-    "Ev Sahibi 2,5 Gol Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[0]) > 2,
-        "mtid": 326, "sov": 2.50, "oca_key": "2", "column_name": "Ev Sahibi 2,5 Alt/Üst Üst",
-    },
-
-    "Deplasman 1,5 Gol Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) < 2,
-        "mtid": 29, "sov": 1.50, "oca_key": "1", "column_name": "Deplasman 1,5 Alt/Üst Alt",
-    },
-    "Deplasman 1,5 Gol Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) > 1,
-        "mtid": 29, "sov": 1.50, "oca_key": "2", "column_name": "Deplasman 1,5 Alt/Üst Üst",
-    },
-    "Deplasman 2,5 Gol Alt": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) < 3,
-        "mtid": 328, "sov": 2.50, "oca_key": "1", "column_name": "Deplasman 2,5 Alt/Üst Alt",
-    },
-    "Deplasman 2,5 Gol Üst": {
-        "func": lambda r: r.get("MS SKOR") and "-" in r["MS SKOR"] and int(r["MS SKOR"].split("-")[1]) > 2,
-        "mtid": 328, "sov": 2.50, "oca_key": "2", "column_name": "Deplasman 2,5 Alt/Üst Üst",
-    },
+CRITICAL_MARKETS = {
+    "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
+    "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst", 
+    "Karşılıklı Gol Var", "Karşılıklı Gol Yok",
+    "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2"
 }
 
-def calculate_predictions(group_rows, api_row):
-    predictions = []
-    match_rows = [r for r in group_rows if r and r.get("Benzerlik (%)", "") != "" and r.get("MS SKOR", "")]
-    if not match_rows:
-        return predictions
+def quality_filter(api_odds, data_odds):
+    """Kalite filtresi - Düşük kaliteli eşleşmeleri eler"""
+    # Oran sayısı filtresi
+    api_odds_count = len([col for col in excel_columns if col in api_odds and pd.notna(api_odds.get(col))])
+    data_odds_count = len([col for col in excel_columns if col in data_odds and pd.notna(data_odds.get(col))])
+    
+    if data_odds_count < api_odds_count * 0.5:
+        return False
+    
+    # Kritik oranların en az %40'ı olmalı
+    critical_count = sum(1 for market in CRITICAL_MARKETS if market in data_odds and pd.notna(data_odds.get(market)))
+    if critical_count < len(CRITICAL_MARKETS) * 0.4:
+        return False
+        
+    return True
 
-    # Skor baskınlıkları
-    ms_scores = [r.get("MS SKOR", "") for r in match_rows if r.get("MS SKOR", "")]
-    if ms_scores:
-        counts = Counter(ms_scores)
-        for score, cnt in counts.items():
-            if cnt / len(match_rows) >= 0.65:
-                predictions.append(f"Maç Skoru {score}: {cnt / len(match_rows) * 100:.1f}%")
-
-    # Diğer kriterler
-    for title, info in prediction_criteria.items():
-        req_mtid = info["mtid"]
-        req_sov  = info["sov"]
-        req_key  = str(info["oca_key"])
-
-        # API tarafında pazar var mı?
-        api_mtids = set(api_row.get("MTIDs", []))
-        if req_mtid not in api_mtids:
+# ==============================
+# YENİ: İSTATİSTİK HESAPLAMA (v43'ten)
+# ==============================
+def calculate_distribution_stats(similar_matches_list, min_similarity=70):
+    """Benzer maçlar listesinden istatistiksel dağılımı hesaplar"""
+    valid_matches = []
+    for s in similar_matches_list:
+        try:
+            if (s["similarity_percent"] >= min_similarity and
+                s["data_row"].get("MS SKOR", "") not in ["", "None", None] and
+                s["data_row"].get("IY SKOR", "") not in ["", "None", None] and
+                "-" in s["data_row"].get("MS SKOR", "") and
+                "-" in s["data_row"].get("IY SKOR", "")):
+                
+                valid_matches.append(s["data_row"])
+        except Exception:
             continue
+            
+    count = len(valid_matches)
+    if count == 0:
+        return {"Mac_Sayisi": 0}
 
-        # SOV eşleşmesi (varsa)
-        if req_sov is not None:
-            ok = False
-            for m in api_row.get("MA", []):
-                if m.get("MTID") == req_mtid:
-                    try:
-                        if float(m.get("SOV", 0)) == float(req_sov):
-                            ok = True
-                            break
-                    except (ValueError, TypeError):
-                        pass
-            if not ok:
-                continue
+    stats = {"Mac_Sayisi": count}
+    
+    def get_scores(row):
+        try:
+            ms_home = int(row["MS SKOR"].split("-")[0])
+            ms_away = int(row["MS SKOR"].split("-")[1])
+            iy_home = int(row["IY SKOR"].split("-")[0])
+            iy_away = int(row["IY SKOR"].split("-")[1])
+            return ms_home, ms_away, iy_home, iy_away
+        except Exception:
+            return None
 
-        # Geçmiş benzer satırlarda gerçekleşme oranı
-        cnt = sum(1 for r in match_rows if info["func"](r))
-        pct = (cnt / len(match_rows)) * 100.0
-        if pct < 80.0:
+    # İstatistikleri hesapla
+    over_2_5_count = 0
+    kg_var_count = 0
+    iy_over_1_5_count = 0
+    over_1_5_count = 0
+
+    for r in valid_matches:
+        scores = get_scores(r)
+        if scores is None:
+            count -= 1
             continue
+        
+        ms_home, ms_away, iy_home, iy_away = scores
+        
+        if (ms_home + ms_away) > 2: over_2_5_count += 1
+        if ms_home > 0 and ms_away > 0: kg_var_count += 1
+        if (iy_home + iy_away) > 1: iy_over_1_5_count += 1
+        if (ms_home + ms_away) > 1: over_1_5_count += 1
 
-        # Oran
-        odds = None
-        for m in api_row.get("MA", []):
-            if m.get("MTID") != req_mtid:
-                continue
-            if req_sov is not None:
-                try:
-                    if float(m.get("SOV", 0)) != float(req_sov):
-                        continue
-                except (ValueError, TypeError):
-                    continue
-            for oca in m.get("OCA", []):
-                if str(oca.get("N", "")) == req_key:
-                    odds = oca.get("O")
-                    break
-            if odds is not None:
-                break
+    if count == 0:
+        return {"Mac_Sayisi": 0}
 
-        text = f"{title}: {pct:.1f}%"
-        if odds is not None:
-            try:
-                text += f" (Oran {float(odds):.2f})"
-            except Exception:
-                pass
-        predictions.append(text)
+    stats["2.5_Ustu_%"] = (over_2_5_count / count) * 100 if count > 0 else 0
+    stats["KG_Var_%"] = (kg_var_count / count) * 100 if count > 0 else 0
+    stats["IY_1.5_Ustu_%"] = (iy_over_1_5_count / count) * 100 if count > 0 else 0
+    stats["1.5_Ustu_%"] = (over_1_5_count / count) * 100 if count > 0 else 0
 
-    return predictions[:10]  # max 10 tahmin
+    return stats
+
+# ==============================
+# LOAD JSON MAPPINGS
+# ==============================
+def load_json_mappings():
+    try:
+        download(f"https://drive.google.com/uc?id={LEAGUE_MAPPING_ID}", "league_mapping.json", quiet=True)
+        with open("league_mapping.json", "r", encoding="utf-8") as f:
+            league_data = json.load(f)
+            league_mapping = {int(k): v for k, v in league_data.items()}
+    except Exception as e:
+        st.error(f"league_mapping.json yüklenirken hata: {str(e)}")
+        league_mapping = {}
+
+    try:
+        download(f"https://drive.google.com/uc?id={MTID_MAPPING_ID}", "mtid_mapping.json", quiet=True)
+        with open("mtid_mapping.json", "r", encoding="utf-8") as f:
+            mtid_data = json.load(f)
+            mtid_mapping = {}
+            for key_str, value in mtid_data.items():
+                if key_str.startswith("(") and key_str.endswith(")"):
+                    parts = key_str[1:-1].split(", ")
+                    if len(parts) == 2:
+                        mtid = int(parts[0])
+                        sov = None if parts[1] == "null" else float(parts[1])
+                        mtid_mapping[(mtid, sov)] = value
+    except Exception as e:
+        st.error(f"mtid_mapping.json yüklenirken hata: {str(e)}")
+        mtid_mapping = {}
+
+    st.session_state.league_mapping = league_mapping
+    st.session_state.mtid_mapping = mtid_mapping
+    return True if league_mapping and mtid_mapping else False
+
+# ==============================
+# EXCEL COLUMNS
+# ==============================
+excel_columns = [
+    "Maç Sonucu 1", "Maç Sonucu X", "Maç Sonucu 2",
+    "Çifte Şans 1 veya X", "Çifte Şans 1 veya 2", "Çifte Şans X veya 2",
+    "0,5 Alt/Üst Alt", "0,5 Alt/Üst Üst",
+    "1,5 Alt/Üst Alt", "1,5 Alt/Üst Üst",
+    "2,5 Alt/Üst Alt", "2,5 Alt/Üst Üst",
+    "3,5 Alt/Üst Alt", "3,5 Alt/Üst Üst",
+    "4,5 Alt/Üst Alt", "4,5 Alt/Üst Üst",
+    "Karşılıklı Gol Var", "Karşılıklı Gol Yok",
+    "İlk Yarı/Maç Sonucu 1/1", "İlk Yarı/Maç Sonucu 1/X", "İlk Yarı/Maç Sonucu 1/2",
+    "İlk Yarı/Maç Sonucu X/1", "İlk Yarı/Maç Sonucu X/X", "İlk Yarı/Maç Sonucu X/2",
+    "İlk Yarı/Maç Sonucu 2/1", "İlk Yarı/Maç Sonucu 2/X", "İlk Yarı/Maç Sonucu 2/2",
+    "Toplam Gol Aralığı 0-1 Gol", "Toplam Gol Aralığı 2-3 Gol", "Toplam Gol Aralığı 4-5 Gol", "Toplam Gol Aralığı 6+ Gol",
+    "1. Yarı Sonucu 1", "1. Yarı Sonucu X", "1. Yarı Sonucu 2",
+    "1. Yarı Çifte Şans 1-X", "1. Yarı Çifte Şans 1-2", "1. Yarı Çifte Şans X-2",
+    "2. Yarı Sonucu 1", "2. Yarı Sonucu X", "2. Yarı Sonucu 2",
+    "Maç Sonucu ve (1,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (1,5) Alt/Üst X ve Alt", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Alt",
+    "Maç Sonucu ve (1,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (1,5) Alt/Üst X ve Üst", "Maç Sonucu ve (1,5) Alt/Üst 2 ve Üst",
+    "Maç Sonucu ve (2,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (2,5) Alt/Üst X ve Alt", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Alt",
+    "Maç Sonucu ve (2,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (2,5) Alt/Üst X ve Üst", "Maç Sonucu ve (2,5) Alt/Üst 2 ve Üst",
+    "Maç Sonucu ve (3,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (3,5) Alt/Üst X ve Alt", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Alt",
+    "Maç Sonucu ve (3,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (3,5) Alt/Üst X ve Üst", "Maç Sonucu ve (3,5) Alt/Üst 2 ve Üst",
+    "Maç Sonucu ve (4,5) Alt/Üst 1 ve Alt", "Maç Sonucu ve (4,5) Alt/Üst X ve Alt", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Alt",
+    "Maç Sonucu ve (4,5) Alt/Üst 1 ve Üst", "Maç Sonucu ve (4,5) Alt/Üst X ve Üst", "Maç Sonucu ve (4,5) Alt/Üst 2 ve Üst",
+    "1. Yarı 0,5 Alt/Üst Alt", "1. Yarı 0,5 Alt/Üst Üst",
+    "1. Yarı 1,5 Alt/Üst Alt", "1. Yarı 1,5 Alt/Üst Üst",
+    "1. Yarı 2,5 Alt/Üst Alt", "1. Yarı 2,5 Alt/Üst Üst",
+    "Evsahibi 0,5 Alt/Üst Alt", "Evsahibi 0,5 Alt/Üst Üst",
+    "Evsahibi 1,5 Alt/Üst Alt", "Evsahibi 1,5 Alt/Üst Üst",
+    "Evsahibi 2,5 Alt/Üst Alt", "Evsahibi 2,5 Alt/Üst Üst",
+    "Deplasman 0,5 Alt/Üst Alt", "Deplasman 0,5 Alt/Üst Üst",
+    "Deplasman 1,5 Alt/Üst Alt", "Deplasman 1,5 Alt/Üst Üst",
+    "Deplasman 2,5 Alt/Üst Alt", "Deplasman 2,5 Alt/Üst Üst",
+    "İlk Gol 1", "İlk Gol Olmaz", "İlk Gol 2",
+    "Daha Çok Gol Olacak Yarı 1.Y", "Daha Çok Gol Olacak Yarı Eşit", "Daha Çok Gol Olacak Yarı 2.Y",
+    "Maç Skoru 1-0", "Maç Skoru 2-0", "Maç Skoru 2-1", "Maç Skoru 3-0", "Maç Skoru 3-1", "Maç Skoru 3-2",
+    "Maç Skoru 4-0", "Maç Skoru 4-1", "Maç Skoru 4-2", "Maç Skoru 5-0", "Maç Skoru 5-1", "Maç Skoru 6-0",
+    "Maç Skoru 0-0", "Maç Skoru 1-1", "Maç Skoru 2-2", "Maç Skoru 3-3", "Maç Skoru 0-1", "Maç Skoru 0-2",
+    "Maç Skoru 1-2", "Maç Skoru 0-3", "Maç Skoru 1-3", "Maç Skoru 2-3", "Maç Skoru 0-4", "Maç Skoru 1-4",
+    "Maç Skoru 2-4", "Maç Skoru 0-5", "Maç Skoru 1-5", "Maç Skoru 0-6", "Maç Skoru Diğer",
+    "Handikaplı Maç Sonucu (-1,0) 1", "Handikaplı Maç Sonucu (-1,0) X", "Handikaplı Maç Sonucu (-1,0) 2",
+    "Handikaplı Maç Sonucu (1,0) 1", "Handikaplı Maç Sonucu (1,0) X", "Handikaplı Maç Sonucu (1,0) 2",
+]
 
 # ==============================
 # FETCH & PROCESS API
@@ -698,7 +472,6 @@ def fetch_api_data():
         resp = requests.get(url, headers=HEADERS, timeout=30)
         resp.raise_for_status()
         data = resp.json()
-        # EA listesi
         if isinstance(data, dict) and "sg" in data and "EA" in data["sg"]:
             return data["sg"]["EA"], data
         return [], {"error": "EA listesi bulunamadı"}
@@ -736,7 +509,7 @@ def process_api_data(match_list, raw_data, start_dt, end_dt):
             "Ev Sahibi Takım": m.get("HN", ""),
             "Deplasman Takım": m.get("AN", ""),
             "Lig Adı": league_name,
-            "İY/MS": "Var" if any(mm.get("MTID") == 5 for mm in markets) else "Yok",  # İY/MS MTID kontrolü
+            "İY/MS": "Var" if any(mm.get("MTID") == 5 for mm in markets) else "Yok",
             "MTIDs": [mm.get("MTID") for mm in markets],
             "MA": markets,
             "_match_dt": mdt,
@@ -749,7 +522,6 @@ def process_api_data(match_list, raw_data, start_dt, end_dt):
             sov  = market.get("SOV")
             key  = (mtid, float(sov) if sov is not None else None) if isinstance(sov, (int, float, str)) else (mtid, None)
             if key not in st.session_state.mtid_mapping:
-                # MTID bazlı (SOV'suz) fallback
                 key = (mtid, None)
                 if key not in st.session_state.mtid_mapping:
                     continue
@@ -781,22 +553,23 @@ def process_api_data(match_list, raw_data, start_dt, end_dt):
     return api_df
 
 # ==============================
-# FIND SIMILAR MATCHES (with GLOBAL)
+# YENİ: GELİŞMİŞ BENZER MAÇ BULMA (v43'ten)
 # ==============================
 def find_similar_matches(api_df, data):
     status_placeholder.write("Maçlar analiz ediliyor...")
     time.sleep(0.05)
 
     output_rows = []
+    stats_data_list = []
     league_values = set(st.session_state.league_mapping.values())
 
     # Minimum ortak oran sayısı
-    MIN_COLS = 5
+    MIN_COLS = int(len(excel_columns) * 0.10)
 
     # Her API maçı için
     for _, api_row in api_df.iterrows():
         # API odds (sadece sayısal kolonlar)
-        numeric_cols = [c for c in data.columns if c not in ["Saat","Tarih","Lig Adı","Ev Sahibi Takım","Deplasman Takım","IY SKOR","MS SKOR","Tahmin"]]
+        numeric_cols = [c for c in data.columns if c in excel_columns]
         api_odds = {c: api_row[c] for c in numeric_cols if c in api_row and pd.notna(api_row[c])}
         if len(api_odds) < MIN_COLS:
             continue
@@ -805,11 +578,88 @@ def find_similar_matches(api_df, data):
         same_league_df  = data[data["Lig Adı"] == api_league] if api_league in league_values else pd.DataFrame()
         other_league_df = data[data["Lig Adı"] != api_league]
 
-        # Ortak kolonlar
-        common_same  = [c for c in api_odds.keys() if c in same_league_df.columns] if not same_league_df.empty else []
-        common_other = [c for c in api_odds.keys() if c in other_league_df.columns] if not other_league_df.empty else []
+        # Lig içi benzerler
+        similarities_league = []
+        if not same_league_df.empty:
+            common_columns = [c for c in api_odds.keys() if c in same_league_df.columns]
+            if len(common_columns) >= MIN_COLS:
+                for _, r in same_league_df.iterrows():
+                    row_odds = {c: r[c] for c in common_columns if pd.notna(r[c])}
+                    if len(row_odds) < MIN_COLS:
+                        continue
+                    if not quality_filter(api_odds, row_odds):
+                        continue
+                    
+                    sim = calculate_similarity(api_odds, row_odds)
+                    if np.isnan(sim) or sim < 70:
+                        continue
+                    
+                    try:
+                        md = pd.to_datetime(str(r.get("Tarih","01.01.2000")) + " " + str(r.get("Saat","00:00")), format="%d.%m.%Y %H:%M", errors="coerce")
+                    except Exception:
+                        md = pd.NaT
+                    
+                    similarities_league.append({
+                        "similarity_percent": sim, 
+                        "match_date": md, 
+                        "data_row": r
+                    })
 
-        # Başlık satırı (API maçı) — İY/MS ekliyoruz
+        # Global benzerler
+        similarities_global = []
+        if not other_league_df.empty:
+            common_columns = [c for c in api_odds.keys() if c in other_league_df.columns]
+            if len(common_columns) >= MIN_COLS:
+                # Yükü azalt
+                if len(other_league_df) > 4000:
+                    other_league_df_sample = other_league_df.sample(4000, random_state=1)
+                else:
+                    other_league_df_sample = other_league_df
+                    
+                for _, r in other_league_df_sample.iterrows():
+                    row_odds = {c: r[c] for c in common_columns if pd.notna(r[c])}
+                    if len(row_odds) < MIN_COLS:
+                        continue
+                    if not quality_filter(api_odds, row_odds):
+                        continue
+                    
+                    sim = calculate_similarity(api_odds, row_odds)
+                    # Lig dışı ceza
+                    sim *= 0.8
+                    
+                    if np.isnan(sim) or sim < 70:
+                        continue
+                    
+                    try:
+                        md = pd.to_datetime(str(r.get("Tarih","01.01.2000")) + " " + str(r.get("Saat","00:00")), format="%d.%m.%Y %H:%M", errors="coerce")
+                    except Exception:
+                        md = pd.NaT
+                    
+                    similarities_global.append({
+                        "similarity_percent": sim, 
+                        "match_date": md, 
+                        "data_row": r
+                    })
+
+        # Sıralama ve en iyi 5'er maç seçimi
+        def sort_and_select(similarities, count=5):
+            # Skor frekanslarını hesapla
+            ms_scores = [s["data_row"].get("MS SKOR", "") for s in similarities if s["data_row"].get("MS SKOR", "") and s["data_row"].get("MS SKOR", "") != ""]
+            ms_score_counts = Counter(ms_scores)
+            max_score_count = max(ms_score_counts.values()) if ms_score_counts else 0
+            score_weights = {score: count / max_score_count if max_score_count > 0 else 0 for score, count in ms_score_counts.items()}
+
+            similarities.sort(key=lambda x: (
+                -x["similarity_percent"],
+                -score_weights.get(x["data_row"].get("MS SKOR", ""), 0),
+                -x["match_date"].timestamp() if not pd.isna(x["match_date"]) else 0
+            ))
+            return similarities[:count]
+
+        top_league_matches = sort_and_select(similarities_league, 5)
+        top_global_matches = sort_and_select(similarities_global, 5)
+
+        # Başlık satırı (API maçı)
         header = {
             "Benzerlik (%)": "",
             "Saat": api_row["Saat"],
@@ -819,111 +669,89 @@ def find_similar_matches(api_df, data):
             "Lig Adı": api_row["Lig Adı"],
             "IY SKOR": "",
             "MS SKOR": "",
-            "Tahmin": "",
             "İY/MS": api_row.get("İY/MS", "Yok"),
             "MTIDs": api_row.get("MTIDs", []),
             "MA": api_row.get("MA", []),
         }
         output_rows.append(header)
 
-        # Lig içi benzerler
-        league_sim = []
-        if not same_league_df.empty and len(common_same) >= MIN_COLS:
-            for _, r in same_league_df.iterrows():
-                row_odds = {c: r[c] for c in common_same if pd.notna(r[c])}
-                if len(row_odds) < MIN_COLS:
-                    continue
-                sim = calculate_similarity(api_odds, row_odds)
-                if np.isnan(sim) or sim < 70:
-                    continue
-                # tarihe göre ikincil sıralama
-                try:
-                    md = pd.to_datetime(str(r.get("Tarih","01.01.2000")) + " " + str(r.get("Saat","00:00")), format="%d.%m.%Y %H:%M", errors="coerce")
-                except Exception:
-                    md = pd.NaT
-                league_sim.append((sim, md, r))
-
-            league_sim.sort(key=lambda x: (-x[0], x[1] if not pd.isna(x[1]) else pd.Timestamp.min))
-            league_sim = league_sim[:5]
-
-        # Global benzerler
-        global_sim = []
-        if not other_league_df.empty and len(common_other) >= MIN_COLS:
-            # yükü azalt
-            if len(other_league_df) > 4000:
-                other_league_df = other_league_df.sample(4000, random_state=1)
-            for _, r in other_league_df.iterrows():
-                row_odds = {c: r[c] for c in common_other if pd.notna(r[c])}
-                if len(row_odds) < MIN_COLS:
-                    continue
-                sim = calculate_similarity(api_odds, row_odds)
-                if np.isnan(sim) or sim < 70:
-                    continue
-                try:
-                    md = pd.to_datetime(str(r.get("Tarih","01.01.2000")) + " " + str(r.get("Saat","00:00")), format="%d.%m.%Y %H:%M", errors="coerce")
-                except Exception:
-                    md = pd.NaT
-                global_sim.append((sim, md, r))
-
-            global_sim.sort(key=lambda x: (-x[0], x[1] if not pd.isna(x[1]) else pd.Timestamp.min))
-            global_sim = global_sim[:5]
-
-        # 10 satırlık blok (5 lig + 5 global). Tahminleri bu satırlara dağıtacağız.
-        combined = league_sim + global_sim
-        combined = combined[:10]
-
-        # Benzer satırlar -> display rows
-        similar_rows = []
-        for sim, md, r in combined:
-            similar_rows.append({
-                "Benzerlik (%)": f"{sim:.2f}%",
+        # Lig içi benzer satırlar
+        for match in top_league_matches:
+            data_row = match["data_row"]
+            match_odds_count = sum(1 for col in excel_columns if col in data_row and pd.notna(data_row[col]))
+            match_info = {
+                "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
                 "Saat": "",
-                "Tarih": str(r.get("Tarih","")),
-                "Ev Sahibi Takım": str(r.get("Ev Sahibi Takım","")),
-                "Deplasman Takım": str(r.get("Deplasman Takım","")),
-                "Lig Adı": str(r.get("Lig Adı","")),
-                "IY SKOR": str(r.get("IY SKOR","")),
-                "MS SKOR": str(r.get("MS SKOR","")),
-                "Tahmin": "",
-            })
+                "Tarih": str(data_row.get("Tarih", "")),
+                "Ev Sahibi Takım": str(data_row.get("Ev Sahibi Takım", "")),
+                "Deplasman Takım": str(data_row.get("Deplasman Takım", "")),
+                "Lig Adı": str(data_row.get("Lig Adı", "")),
+                "IY SKOR": str(data_row.get("IY SKOR", "")),
+                "MS SKOR": str(data_row.get("MS SKOR", "")),
+                "İY/MS": "",
+            }
+            output_rows.append(match_info)
 
-        # Tahminleri hesapla (benzer satırları kriter bazlı ölçüyor)
-        preds = calculate_predictions(similar_rows, header)
+        # Global benzer satırlar
+        for match in top_global_matches:
+            data_row = match["data_row"]
+            match_odds_count = sum(1 for col in excel_columns if col in data_row and pd.notna(data_row[col]))
+            match_info = {
+                "Benzerlik (%)": f"{match['similarity_percent']:.2f}%",
+                "Saat": "",
+                "Tarih": str(data_row.get("Tarih", "")),
+                "Ev Sahibi Takım": str(data_row.get("Ev Sahibi Takım", "")),
+                "Deplasman Takım": str(data_row.get("Deplasman Takım", "")),
+                "Lig Adı": str(data_row.get("Lig Adı", "")),
+                "IY SKOR": str(data_row.get("IY SKOR", "")),
+                "MS SKOR": str(data_row.get("MS SKOR", "")),
+                "İY/MS": "",
+            }
+            output_rows.append(match_info)
 
-        # Tahminleri 10 satıra paylaştır (v26 tarzı: her satırda 1 tahmin olacak şekilde)
-        for i in range(min(len(preds), len(similar_rows))):
-            similar_rows[i]["Tahmin"] = preds[i]
+        # İstatistikleri hesapla
+        lig_stats = calculate_distribution_stats(similarities_league, min_similarity=70)
+        global_stats = calculate_distribution_stats(similarities_global, min_similarity=70)
 
-        # Gruplamayı kapat
-        output_rows.extend(similar_rows)
+        # İstatistik verisini kaydet
+        stats_data = {
+            "Tarih": api_row["Tarih"],
+            "Saat": api_row["Saat"],
+            "Lig Adı": api_row["Lig Adı"],
+            "Ev Sahibi Takım": api_row["Ev Sahibi Takım"],
+            "Deplasman Takım": api_row["Deplasman Takım"],
+            "Lig_Mac_Sayisi": lig_stats.get("Mac_Sayisi", 0),
+            "Lig_2.5_Ustu_%": lig_stats.get("2.5_Ustu_%"),
+            "Lig_KG_Var_%": lig_stats.get("KG_Var_%"),
+            "Lig_IY_1.5_Ustu_%": lig_stats.get("IY_1.5_Ustu_%"),
+            "Lig_1.5_Ustu_%": lig_stats.get("1.5_Ustu_%"),
+            "Global_Mac_Sayisi": global_stats.get("Mac_Sayisi", 0),
+            "Global_2.5_Ustu_%": global_stats.get("2.5_Ustu_%"),
+            "Global_KG_Var_%": global_stats.get("KG_Var_%"),
+            "Global_IY_1.5_Ustu_%": global_stats.get("IY_1.5_Ustu_%"),
+            "Global_1.5_Ustu_%": global_stats.get("1.5_Ustu_%")
+        }
+        stats_data_list.append(stats_data)
+
         output_rows.append({})  # ayraç
 
     status_placeholder.write(f"Analiz tamamlandı, {len([r for r in output_rows if r])} satır bulundu.")
-    return output_rows
+    return output_rows, stats_data_list
 
 # ==============================
 # DATAFRAME STYLING
 # ==============================
 def style_dataframe(df):
-    # Grup başlıklarını (Benzerlik boş) farklı renkte gösterelim
     def style_row(row):
         if row["Benzerlik (%)"] == "":
             return ['background-color: #02a7f2'] * len(row)
         return [''] * len(row)
 
     styler = df.style.apply(style_row, axis=1)
-
-    # Tahmin sütunu: kırmızı + kalın + satır sonlarını koru (çok satır)
-    styler = styler.set_properties(
-        subset=["Tahmin"],
-        **{"color": "#D00000", "font-weight": "700", "white-space": "pre-wrap"}
-    )
-
     return styler
 
-
 # ==============================
-# UI: TIME RANGE
+# UI: TIME RANGE & MBS
 # ==============================
 st.subheader("Analiz için Saat Aralığı")
 default_start = datetime.now(IST) + timedelta(minutes=5)
@@ -931,6 +759,9 @@ st.write(f"Başlangıç Saati: {default_start.strftime('%d.%m.%Y %H:%M')} (Otoma
 
 end_date = st.date_input("Bitiş Tarihi", value=datetime.now(IST).date())
 end_time = st.time_input("Bitiş Saati", value=None)
+
+# YENİ: MBS Seçimi
+mbs_choice = get_mbs_choice()
 
 # ==============================
 # RUN
@@ -970,9 +801,8 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 st.error(f"Excel dosyasında eksik sütunlar: {', '.join(miss)}")
                 st.stop()
 
-            # Oran kolonları: sayıya çevir (1.00 altı -> NaN)
-            numeric_candidates = [v.get("column_name") for v in prediction_criteria.values() if v.get("column_name")]
-            for col in numeric_candidates:
+            # Oran kolonları: sayıya çevir
+            for col in excel_columns:
                 if col in data.columns:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
                     data.loc[:, col] = data[col].where(data[col] > 1.0, np.nan)
@@ -987,6 +817,12 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                 st.error(f"Bülten verisi alınamadı. Hata: {raw.get('error', 'Bilinmeyen hata')}")
                 st.stop()
 
+            # YENİ: MBS Filtresi Uygula
+            match_list = filter_matches_by_mbs(match_list, mbs_choice)
+            if not match_list:
+                st.error("MBS filtresinden sonra maç kalmadı!")
+                st.stop()
+
             api_df = process_api_data(match_list, raw, start_dt, end_dt)
             if api_df.empty:
                 st.error("Seçilen saat aralığında maç bulunamadı.")
@@ -995,13 +831,13 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             st.write(f"Bültenden çekilen maç sayısı: {len(match_list)}")
             st.write(f"İşlenen maçlar: {len(api_df)}")
 
-            # Benzerler + Tahminler
-            output_rows = find_similar_matches(api_df, data)
+            # YENİ: Gelişmiş benzerler + İstatistikler
+            output_rows, stats_data_list = find_similar_matches(api_df, data)
             if not output_rows:
                 st.error("Eşleşme bulunamadı. Lütfen verileri kontrol edin.")
                 st.stop()
 
-            # İY/MS ve Normal bülten ayrımı (başlık satırındaki İY/MS'e göre)
+            # İY/MS ve Normal bülten ayrımı
             iyms_rows, normal_rows = [], []
             group, is_iyms = [], False
             for r in output_rows:
@@ -1011,7 +847,6 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
                     group = []
                     continue
                 if r.get("Benzerlik (%)","") == "":
-                    # yeni grup başlığı
                     if group:
                         (iyms_rows if is_iyms else normal_rows).extend(group + [{}])
                     group = [r]
@@ -1021,12 +856,16 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
             if group:
                 (iyms_rows if is_iyms else normal_rows).extend(group)
 
-            cols = ["Benzerlik (%)","Saat","Tarih","Ev Sahibi Takım","Deplasman Takım","Lig Adı","IY SKOR","MS SKOR","Tahmin"]
+            cols = ["Benzerlik (%)","Saat","Tarih","Ev Sahibi Takım","Deplasman Takım","Lig Adı","IY SKOR","MS SKOR","İY/MS"]
             iyms_df  = pd.DataFrame([x for x in iyms_rows if x], columns=cols)
             main_df  = pd.DataFrame([x for x in normal_rows if x], columns=cols)
+            
+            # YENİ: İstatistik DataFrame'i
+            stats_df = pd.DataFrame(stats_data_list)
 
             st.session_state.iyms_df = iyms_df
             st.session_state.main_df = main_df
+            st.session_state.stats_df = stats_df
             st.session_state.output_rows = output_rows
             st.session_state.analysis_done = True
 
@@ -1037,29 +876,48 @@ if st.button("Analize Başla", disabled=st.session_state.analysis_done):
         st.stop()
 
 # ==============================
-# SHOW
+# SHOW RESULTS
 # ==============================
 if st.session_state.analysis_done and st.session_state.iyms_df is not None:
     status_placeholder.empty()
-    tab1, tab2 = st.tabs(["İY/MS Bülteni", "Normal Bülten"])
+    
+    # YENİ: 3 Tab - Normal, İY/MS, İstatistikler
+    tab1, tab2, tab3 = st.tabs(["Normal Bülten", "İY/MS Bülteni", "İstatistiksel Analiz"])
+    
     with tab1:
         st.dataframe(
-            style_dataframe(st.session_state.iyms_df),  # <— styler kullan
+            style_dataframe(st.session_state.main_df),
             use_container_width=True,
-            height=620,
-            column_config={
-                "Tahmin": st.column_config.TextColumn("Tahmin", width="large"),
-            }
+            height=620
         )
     with tab2:
         st.dataframe(
-            style_dataframe(st.session_state.main_df),  # <— styler kullan
+            style_dataframe(st.session_state.iyms_df),
             use_container_width=True,
-            height=620,
-            column_config={
-                "Tahmin": st.column_config.TextColumn("Tahmin", width="large"),
-            }
+            height=620
         )
+    with tab3:
+        if st.session_state.stats_df is not None and not st.session_state.stats_df.empty:
+            # İstatistikleri formatla
+            stats_display = st.session_state.stats_df.copy()
+            
+            # Yüzde değerlerini formatla
+            percent_columns = [col for col in stats_display.columns if '%' in col]
+            for col in percent_columns:
+                stats_display[col] = stats_display[col].apply(
+                    lambda x: f"{x:.1f}%" if pd.notna(x) and isinstance(x, (int, float)) else "-"
+                )
+            
+            # Sütun isimlerini düzenle
+            stats_display.columns = [col.replace('_', ' ') for col in stats_display.columns]
+            
+            st.dataframe(
+                stats_display,
+                use_container_width=True,
+                height=620
+            )
+        else:
+            st.info("İstatistiksel analiz verisi bulunamadı.")
 
 # ============================================================
 # LIGE GÖRE ANALIZ  —  EK BÖLÜM (ESKİ KODA DOKUNMA)
